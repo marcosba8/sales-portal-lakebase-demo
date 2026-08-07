@@ -1,0 +1,19 @@
+# Local secrets / per-workspace config
+deploy.env
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+
+# Node
+client/node_modules/
+
+# Build artifacts kept intentionally: client/out/ IS committed (deployed asset)
+
+# Databricks bundle state / CLI
+.databricks/
+
+# OS / editor
+.DS_Store
+.cursor/

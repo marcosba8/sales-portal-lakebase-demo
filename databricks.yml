@@ -1,0 +1,86 @@
+# Databricks Asset Bundle for the Sales Pipeline Portal (Lakebase demo).
+#
+# Deploy in any workspace — just two commands, fully declarative:
+#   databricks bundle deploy -t <target>                # Lakebase project + app + bindings + grants
+#   databricks bundle run    sales_portal -t <target>   # start the app
+#
+# What `bundle deploy` provisions (resources/*.yml) — no post-deploy script:
+#   - the Lakebase Autoscaling project, sized 0.5-12 CU via the project's
+#     default_endpoint_settings (resources/lakebase.yml)
+#   - CAN_MANAGE on that project for the app's SP (Act 2 branching / Act 3 PITR),
+#     via the project's `permissions` referencing the app's computed SP id
+#   - the app + its SQL warehouse binding AND the Lakebase `postgres` binding
+#     (CAN_CONNECT_AND_CREATE auto-grants the SP's Postgres role + CONNECT/CREATE)
+#
+# ⚠️ `bundle destroy` deletes the Lakebase project AND its data (the demo
+#    rebuilds data on demand via Act 1). CU sizing only applies on project
+#    CREATE — adopting a pre-existing project won't resize it.
+#
+# Per-workspace values are bundle variables — override them per target below
+# (or with --var). The classic scripts/deploy-v2.sh remains as a fallback.
+bundle:
+  name: sales-portal
+
+include:
+  - resources/*.yml
+
+# ── Per-workspace variables ──────────────────────────────────────────────────
+variables:
+  app_name:
+    description: Databricks App name.
+    default: sales-portal-v2
+  lakebase_project:
+    description: Lakebase Autoscaling project id.
+    default: sales-db-v2
+  warehouse_id:
+    description: SQL warehouse id for Act 4 (gold Delta table).
+    default: ""
+  gold_catalog:
+    description: UC catalog for the Act 4 gold + synced table.
+    default: main
+  gold_schema:
+    description: UC schema for the Act 4 gold Delta table.
+    default: sales_ml
+  lakebase_endpoint:
+    description: Full Lakebase endpoint path the app connects to.
+    default: projects/${var.lakebase_project}/branches/production/endpoints/primary
+
+# Only sync what the app needs — keep node_modules/.venv/sources out.
+sync:
+  include:
+    - app.py
+    - requirements.txt
+    - server/**
+    - client/out/**
+  exclude:
+    - "**/__pycache__/**"
+    - ".venv/**"
+    - "client/node_modules/**"
+    - "client/src/**"
+    - "deploy.env"
+
+targets:
+  # Default demo target — the fevm-startups workspace.
+  fevm:
+    default: true
+    mode: development
+    workspace:
+      profile: fevm-startups
+    variables:
+      app_name: sales-portal-v2
+      lakebase_project: sales-db-v2
+      warehouse_id: "6e1468fc8ebbbcb2"
+      gold_catalog: for_startups_demos_catalog
+      gold_schema: sales_ml
+
+  # Template for another workspace — fill in and use with -t other.
+  other:
+    mode: development
+    workspace:
+      profile: CHANGE_ME
+    variables:
+      app_name: sales-portal-v2
+      lakebase_project: sales-db-v2
+      warehouse_id: "CHANGE_ME"
+      gold_catalog: main
+      gold_schema: sales_ml

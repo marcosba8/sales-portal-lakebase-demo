@@ -1,0 +1,46 @@
+# Lakebase Autoscaling project — bundle-managed (source of truth).
+#
+# Declaring the project here means a fresh workspace gets a correctly-sized
+# project in a single `bundle deploy`: default_endpoint_settings sets the
+# auto-created production/primary endpoint to 0.5–12 CU (Act 5 needs the
+# headroom). VERIFIED: these CU limits only take effect when the project is
+# CREATED by the bundle — they are NOT retroactive to an already-existing
+# project, and the project auto-creates its own `production` branch + `primary`
+# endpoint (so do NOT also declare postgres_branches/postgres_endpoints for
+# them — that collides with "already exists").
+#
+# ⚠️ `bundle destroy` deletes this project AND all its data. The demo rebuilds
+# its data on demand (Act 1 create-tables + seed), so that's acceptable here.
+#
+# `purge_on_delete: true` addresses databricks/cli#5783: without it, a
+# `bundle destroy` (or delete) soft-deletes the project but RESERVES its slug
+# for hours, so the next `bundle deploy` fails with "project slug already exists
+# in the workspace". purge_on_delete fully releases the slug on destroy.
+# NOTE: this field is only honored by newer CLI versions — on CLI 0.297.2 it
+# warns "unknown field" and is ignored (kept here so it activates on upgrade).
+# On this CLI, if a deleted project's slug is stuck, free it manually with:
+#   databricks api delete "/api/2.0/postgres/projects/<id>?purge=true"
+# (the `delete-project --purge` CLI flag also exists only on newer versions).
+resources:
+  postgres_projects:
+    lakebase:
+      project_id: ${var.lakebase_project}
+      display_name: "Sales Portal demo (Lakebase Autoscaling)"
+      pg_version: 17
+      purge_on_delete: true
+      default_endpoint_settings:
+        autoscaling_limit_min_cu: 0.5
+        autoscaling_limit_max_cu: 12
+      # Grant the app's service principal CAN_MANAGE on the project so it can
+      # create/promote/delete branches (Act 2 branching, Act 3 PITR). The
+      # `postgres` resource binding only grants data-plane rights (connect +
+      # create INSIDE the DB); branch ops are a control-plane operation on the
+      # project object, gated by this ACL — VERIFIED the binding alone is NOT
+      # enough. The SP's application id isn't known until deploy, so we
+      # reference the app resource's computed output; DABs resolves it and there
+      # is no dependency cycle even though the app also binds this project
+      # (the SP exists as soon as the app object is created). This replaces the
+      # old bundle_setup.py grant entirely.
+      permissions:
+        - level: CAN_MANAGE
+          service_principal_name: ${resources.apps.sales_portal.service_principal_client_id}

@@ -1,0 +1,48 @@
+# The Databricks App resource. Env vars + command + the SQL warehouse binding
+# are declared here (variable-substituted per target) — no generated app.yaml.
+resources:
+  apps:
+    sales_portal:
+      name: ${var.app_name}
+      description: "Sales Pipeline Portal — Lakebase demo (Demo Control tab)."
+      # Source is the bundle root (this app's files), synced per the sync block.
+      source_code_path: ..
+      resources:
+        - name: sql-warehouse
+          description: "Act 4 gold churn table build/re-score."
+          sql_warehouse:
+            id: ${var.warehouse_id}
+            permission: CAN_USE
+        # Binding the Lakebase DB auto-creates the app SP's Postgres role and
+        # grants CONNECT + CREATE ON DATABASE (verified) — no manual create-role
+        # or GRANT needed. Also injects PGHOST/PGPORT/PGDATABASE/PGUSER/PGSSLMODE.
+        # NOTE: the database resource id uses a HYPHEN (databricks-postgres) even
+        # though the DB you connect to is databricks_postgres.
+        # The paths reference the bundle-managed project (resources/lakebase.yml)
+        # via ${resources.postgres_projects.lakebase.id} (== projects/<id>) so
+        # terraform creates the project BEFORE the app tries to bind it.
+        - name: postgres
+          description: "Lakebase production branch — SP connect + create (Acts 1-5)."
+          postgres:
+            branch: ${resources.postgres_projects.lakebase.id}/branches/production
+            database: ${resources.postgres_projects.lakebase.id}/branches/production/databases/databricks-postgres
+            permission: CAN_CONNECT_AND_CREATE
+      config:
+        command:
+          - uvicorn
+          - app:app
+          - --host
+          - "0.0.0.0"
+          - --port
+          - "$DATABRICKS_APP_PORT"
+        env:
+          - name: LAKEBASE_ENDPOINT
+            value: ${var.lakebase_endpoint}
+          - name: LAKEBASE_DATABASE_NAME
+            value: databricks_postgres
+          - name: WAREHOUSE_ID
+            value: ${var.warehouse_id}
+          - name: GOLD_CATALOG
+            value: ${var.gold_catalog}
+          - name: GOLD_SCHEMA
+            value: ${var.gold_schema}
