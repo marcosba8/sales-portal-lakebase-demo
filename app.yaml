@@ -1,3 +1,17 @@
+# Databricks App runtime config.
+#
+# ⚠️ You normally do NOT deploy using this file directly. The two supported
+# paths both set LAKEBASE_ENDPOINT for you and ignore this file:
+#   • DABs (recommended): `databricks bundle deploy` — env comes from
+#     resources/app.yml (LAKEBASE_ENDPOINT = the project's production endpoint).
+#   • Script: `scripts/deploy-v2.sh` — generates its own app.yaml with the
+#     endpoint injected from deploy.env.
+#
+# This file only takes effect if you deploy the folder directly (e.g.
+# `databricks apps deploy` from a clone). In that case you MUST provide
+# LAKEBASE_ENDPOINT yourself — either uncomment it below and fill in your
+# project id, or set it on the app (Apps UI → Edit → Environment). An empty or
+# missing value makes the app run in Preview mode (sample data, no real Lakebase).
 command:
   - "uvicorn"
   - "app:app"
@@ -7,7 +21,8 @@ command:
   - "$DATABRICKS_APP_PORT"
 
 env:
-  - name: LAKEBASE_ENDPOINT
-    value: ""
+  # Uncomment and set for a direct (non-DABs, non-script) deploy:
+  # - name: LAKEBASE_ENDPOINT
+  #   value: "projects/<your-lakebase-project>/branches/production/endpoints/primary"
   - name: LAKEBASE_DATABASE_NAME
     value: "databricks_postgres"
