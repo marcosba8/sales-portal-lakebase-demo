@@ -26,8 +26,17 @@ app. You always act *on a target* (a named workspace) with `-t <target>`.
   databricks auth profiles            # confirm your profile is listed + valid
   ```
 - A **SQL warehouse** id (`databricks warehouses list`) and a **Unity Catalog
-  catalog** the app's service principal can create a schema in.
+  catalog** for the Act 4 gold + synced table.
 - The workspace must be **Lakebase-enabled** (Autoscaling / serverless).
+
+> **After the app is created**, grant its service principal `USE CATALOG` +
+> `CREATE SCHEMA` on the gold catalog (the SP starts with no UC grants, so Act 4
+> fails with `PERMISSION_DENIED: User does not have USE CATALOG` otherwise):
+> ```bash
+> databricks grants update catalog <GOLD_CATALOG> \
+>   --json '{"changes":[{"principal":"<APP_SP_CLIENT_ID>","add":["USE_CATALOG","CREATE_SCHEMA"]}]}'
+> ```
+> Find the SP with `databricks apps get <app-name>` → `service_principal_client_id`.
 
 ### 2. Point a target at your workspace
 
@@ -140,8 +149,9 @@ sales-portal/
 
 - A **Lakebase-enabled** (Autoscaling / serverless) Databricks workspace.
 - A **SQL warehouse** you can use (Act 4).
-- A **Unity Catalog catalog** the app's service principal can create a schema in
-  (holds the Act 4 gold + synced table).
+- A **Unity Catalog catalog** for the Act 4 gold + synced table. After the app
+  exists, grant its SP `USE CATALOG` + `CREATE SCHEMA` on it (see the note in the
+  Quickstart above) — required or Act 4 fails with `PERMISSION_DENIED`.
 - **Databricks CLI** authenticated to the workspace (`databricks auth login`).
 - For local dev / the Option A script: `node`, `uv`.
 

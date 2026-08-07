@@ -49,6 +49,7 @@ variables:
 sync:
   include:
     - app.py
+    - app.yaml
     - requirements.txt
     - server/**
     - client/out/**

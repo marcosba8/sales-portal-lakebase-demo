@@ -8,8 +8,17 @@ acts (setup/seed, branching, PITR, synced tables, load test) with buttons.
 - **Lakebase enabled** (Autoscaling / serverless workspace) and a **project created**
   (the app connects to its `production` branch `primary` endpoint).
 - A **SQL warehouse** you can use (Act 4 builds a gold Delta table through it).
-- A **Unity Catalog catalog** the app's service principal can create a schema in
-  (holds the Act 4 gold + synced table).
+- A **Unity Catalog catalog** for the Act 4 gold + synced table. **After the app
+  exists, grant its service principal `USE CATALOG` + `CREATE SCHEMA` on that
+  catalog** — the app SP is created without UC grants, so Act 4 fails with
+  `PERMISSION_DENIED: User does not have USE CATALOG` until you run this (as the
+  catalog owner). Additive and safe on shared catalogs:
+  ```
+  # SP = the app's service_principal_client_id (databricks apps get <app>)
+  databricks grants update catalog <GOLD_CATALOG> \
+    --json '{"changes":[{"principal":"<APP_SP_CLIENT_ID>","add":["USE_CATALOG","CREATE_SCHEMA"]}]}'
+  ```
+  The app then creates and owns its `sales_ml` (gold) and `sales` (synced) schemas.
 - Databricks CLI authenticated to the workspace (`databricks auth login`).
 - Local tooling: `node`, `uv`, and a project venv with the SDK:
   ```
