@@ -9,6 +9,81 @@ point-in-time recovery, lakehouse→app syncing, and autoscaling — not slides.
 The app is a **FastAPI** backend + **React/Vite** frontend, deployed as a
 Databricks App with its service principal wired to Lakebase and a SQL warehouse.
 
+## Quickstart — deploy with DABs
+
+The app ships as a **Databricks Asset Bundle** (`databricks.yml`). One deploy
+provisions *everything* declaratively — the Lakebase project (sized 0.5–12 CU),
+all grants, the app, and both resource bindings.
+
+**Mental model:** `deploy` creates/updates the cloud resources; `run` starts the
+app. You always act *on a target* (a named workspace) with `-t <target>`.
+
+### 1. Prerequisites
+
+- Databricks CLI installed and authenticated to your workspace:
+  ```bash
+  databricks auth login --profile <your-profile>
+  databricks auth profiles            # confirm your profile is listed + valid
+  ```
+- A **SQL warehouse** id (`databricks warehouses list`) and a **Unity Catalog
+  catalog** the app's service principal can create a schema in.
+- The workspace must be **Lakebase-enabled** (Autoscaling / serverless).
+
+### 2. Point a target at your workspace
+
+Targets live at the bottom of [`databricks.yml`](databricks.yml). The `fevm`
+target is pre-filled for the original demo workspace; for anywhere else, edit the
+`other` target (or copy it) and fill in these five values:
+
+```yaml
+  other:                                 # use with: -t other
+    mode: development
+    workspace:
+      profile: <your-cli-profile>        # from `databricks auth profiles`
+    variables:
+      app_name: sales-portal-v2          # any app name (bundle creates it)
+      lakebase_project: sales-db-demo    # any NEW Lakebase project id (bundle creates it)
+      warehouse_id: "<your-warehouse-id>"  # from `databricks warehouses list`
+      gold_catalog: <a-uc-catalog>       # catalog the app SP can create a schema in
+      gold_schema: sales_ml              # any schema name
+```
+
+| Variable | What it is |
+|----------|------------|
+| `workspace.profile` | Your Databricks CLI profile (the workspace to deploy to). |
+| `app_name` | Name for the Databricks App (bundle creates it). |
+| `lakebase_project` | Name for the Lakebase project — **must not already exist**; the bundle creates it. |
+| `warehouse_id` | SQL warehouse for Act 4's gold Delta table. |
+| `gold_catalog` / `gold_schema` | UC location for the Act 4 gold + synced table. |
+
+### 3. Deploy and start
+
+```bash
+cd sales-portal
+
+databricks bundle validate -t other      # (optional) check the config parses
+databricks bundle deploy   -t other      # create Lakebase project + app + bindings + grants
+databricks bundle run sales_portal -t other   # start the app — prints the URL
+```
+
+Open the printed URL → **Demo Control** tab → run the acts.
+
+> To deploy to the pre-configured demo workspace instead, just use `-t fevm`
+> (it's the default target, so `-t fevm` can even be omitted).
+
+### Gotchas
+
+- **Don't reuse a just-deleted Lakebase project name.** Deleting a project
+  reserves its slug for a while ([databricks/cli#5783](https://github.com/databricks/cli/issues/5783));
+  a redeploy then fails with *"project slug already exists."* Free it with
+  `databricks api delete "/api/2.0/postgres/projects/<id>?purge=true"`, or use a
+  new name.
+- **CU sizing (0.5–12) only applies when the bundle first *creates* the project.**
+  Adopting a pre-existing project won't resize it (set it manually — see
+  [DEPLOY.md](DEPLOY.md)).
+- **`bundle destroy` deletes the project AND its data.** To reset between demos,
+  use the app's **↺ Reset demo** button — never `destroy`.
+
 ## The demo — 5 acts
 
 Run top to bottom in the **Demo Control** tab. Each card carries its own
