@@ -18,13 +18,22 @@ def detect_features(conn) -> dict:
 
     cur = conn.cursor()
 
-    # Get all tables in the sales schema. Synced tables (e.g. churn_predictions)
-    # surface as regular Postgres tables/views, so accept both.
+    # Get all tables in the sales schema. Synced tables surface as regular
+    # Postgres tables/views, so accept both.
     cur.execute("""
         SELECT table_name FROM information_schema.tables
         WHERE table_schema = 'sales' AND table_type IN ('BASE TABLE', 'VIEW', 'FOREIGN')
     """)
     tables = {row[0] for row in cur.fetchall()}
+
+    # The churn synced table lands in the data-science schema (not `sales`), so
+    # detect it there separately.
+    cur.execute("""
+        SELECT COUNT(*) FROM information_schema.tables
+        WHERE table_schema = 'data_science_ml' AND table_name = 'churn_predictions'
+          AND table_type IN ('BASE TABLE', 'VIEW', 'FOREIGN')
+    """)
+    churn_present = cur.fetchone()[0] > 0
 
     # Get columns for key tables
     cur.execute("""
@@ -42,7 +51,7 @@ def detect_features(conn) -> dict:
         "renewals_active": "renewals" in tables,
         "alerts_active": "risk_alerts" in tables,
         "health_score_active": "health_score" in columns.get("accounts", set()),
-        "churn_active": "churn_predictions" in tables,
+        "churn_active": churn_present,
     }
 
     _cache = features

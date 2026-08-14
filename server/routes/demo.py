@@ -171,11 +171,12 @@ FROM sales.accounts a CROSS JOIN generate_series(1,3) AS s(n) WHERE a.id <= 27
 """
 
 
-# Every table the demo can create, in dependency order (children first) so
-# DROP works even with foreign keys. CASCADE covers the rest (e.g. Act 4's
-# synced churn_predictions table).
+# Every table in the `sales` schema the demo can create, in dependency order
+# (children first) so DROP works even with foreign keys. The churn synced table
+# is NOT here — it lives in the data-science schema and is removed via
+# delete_synced_table (it's owned by the sync pipeline, not a plain DROP).
 _ALL_DEMO_TABLES = (
-    "risk_alerts", "renewals", "churn_predictions", "load_test_log",
+    "risk_alerts", "renewals", "load_test_log",
     "sales_activities", "opportunities", "accounts",
 )
 
@@ -574,6 +575,12 @@ PITR_BRANCH = "pitr-recovery"
 # Recovery point recorded in 3a: {"epoch": int, "iso": str, "count": int}.
 _recovery_point: dict | None = None
 
+# Safe delta between recording the recovery point and the DROP, so the recorded
+# timestamp is strictly before the disaster (and starts settling toward durable
+# WAL history). The PITR step has its own larger durability guard (MIN_AGE);
+# this small buffer just guarantees record < drop when both run in one click.
+DISASTER_SAFE_DELTA_S = 3
+
 _CREATE_OPPORTUNITIES_RESTORE = _CREATE_OPPORTUNITIES  # same DDL, reused on restore
 
 
@@ -635,6 +642,48 @@ def act3_drop():
         return {"ok": True, "log": log}
     except Exception as e:
         logger.exception("Act 3 drop failed")
+        log.append(f"ERROR: {e}")
+        raise HTTPException(500, {"log": log, "error": str(e)})
+
+
+@router.post("/act3/disaster")
+def act3_disaster():
+    """Combined step: record the recovery point, wait a safe delta, then DROP.
+
+    Folds the old 'record' + 'drop' into one presenter click. The safe delta
+    keeps the recorded timestamp strictly before the disaster so PITR resolves
+    to the pre-drop state (the PITR step adds its own durability guard on top).
+    """
+    global _recovery_point
+    log: list[str] = []
+    try:
+        with get_conn() as conn:
+            cur = conn.cursor()
+            cur.execute("""SELECT COUNT(*) FROM information_schema.tables
+                           WHERE table_schema='sales' AND table_name='opportunities'""")
+            if cur.fetchone()[0] == 0:
+                raise HTTPException(400, "No opportunities table — seed Act 1 first.")
+            cur.execute("SELECT NOW()")
+            now = cur.fetchone()[0]
+            cur.execute("SELECT COUNT(*) FROM sales.opportunities")
+            count = cur.fetchone()[0]
+        _recovery_point = {"epoch": int(now.timestamp()), "iso": str(now), "count": count}
+        log.append(f"Recovery point recorded: {count} deals safe at {now}.")
+
+        # Safe delta: let the recovery point sit strictly before the drop.
+        time.sleep(DISASTER_SAFE_DELTA_S)
+
+        with get_conn() as conn:
+            conn.cursor().execute("DROP TABLE IF EXISTS sales.opportunities CASCADE")
+        invalidate_cache()
+        log.append("DISASTER: DROP TABLE sales.opportunities CASCADE")
+        log.append("The entire pipeline is gone.")
+        log.append('App Opportunities tab → "Pipeline Temporarily Unavailable".')
+        return {"ok": True, "log": log, "count": count}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Act 3 disaster failed")
         log.append(f"ERROR: {e}")
         raise HTTPException(500, {"log": log, "error": str(e)})
 
@@ -781,12 +830,22 @@ def act3_restore():
 # vars (injected by the deploy script from deploy.env). Defaults match the
 # original fevm-startups demo so nothing breaks if the env vars are absent.
 GOLD_CATALOG = os.environ.get("GOLD_CATALOG", "for_startups_demos_catalog")
-GOLD_SCHEMA = os.environ.get("GOLD_SCHEMA", "sales_ml")
+# Gold Delta table + the sync pipeline's internal storage live here. Moved off
+# the now-locked `sales_ml` to a fresh data-science schema. `publish` creates it.
+GOLD_SCHEMA = os.environ.get("GOLD_SCHEMA", "data_science_ml")
+# Stable human owner for the gold schema. `publish` (running as the app SP, which
+# creates & thus owns the schema) transfers ownership here so the schema isn't
+# orphaned when the app SP later rotates. Empty = skip the transfer.
+DEMO_SCHEMA_OWNER = os.environ.get("DEMO_SCHEMA_OWNER", "")
 GOLD_TABLE = f"{GOLD_CATALOG}.{GOLD_SCHEMA}.account_churn_predictions"
-SYNCED_TABLE = "sales.churn_predictions"    # target table in Lakebase (schema.table)
-# The UC 3-part name for the synced table. The catalog is an existing UC catalog;
-# schema.table determine where the Postgres table lands in Lakebase (sales.churn_predictions).
-SYNCED_UC_SCHEMA = "sales"
+# The synced table registers in UC under the SAME schema as the gold table
+# (GOLD_SCHEMA), and its UC schema also drives the Postgres landing schema — so
+# it lands as data_science_ml.churn_predictions, which the app reads. We reuse
+# the gold schema (created by `publish`) rather than creating a separate one;
+# this also avoids a stale/orphaned `...sales.churn_predictions` registration
+# from an earlier project that can no longer be created or deleted.
+SYNCED_UC_SCHEMA = GOLD_SCHEMA
+SYNCED_TABLE = f"{SYNCED_UC_SCHEMA}.churn_predictions"   # landing in Lakebase Postgres
 SYNCED_TABLE_ID = f"{GOLD_CATALOG}.{SYNCED_UC_SCHEMA}.churn_predictions"
 
 _GOLD_SEED = f"""
@@ -831,6 +890,20 @@ def act4_publish():
     try:
         log.append("Building the ML team's gold table via the SQL warehouse…")
         run_warehouse_sql(f"CREATE SCHEMA IF NOT EXISTS {GOLD_CATALOG}.{GOLD_SCHEMA}")
+
+        # Hand the schema to a stable human owner so it isn't orphaned when the
+        # app SP rotates on a future redeploy. Runs as the SP that just created
+        # (and owns) the schema, so it has MANAGE to reassign. Best-effort.
+        if DEMO_SCHEMA_OWNER:
+            try:
+                run_warehouse_sql(
+                    f"ALTER SCHEMA {GOLD_CATALOG}.{GOLD_SCHEMA} OWNER TO `{DEMO_SCHEMA_OWNER}`")
+                run_warehouse_sql(
+                    f"GRANT ALL PRIVILEGES ON SCHEMA {GOLD_CATALOG}.{GOLD_SCHEMA} TO `{DEMO_SCHEMA_OWNER}`")
+                log.append(f"Schema owner set to {DEMO_SCHEMA_OWNER} (survives SP rotation).")
+            except Exception as oe:
+                log.append(f"(schema owner transfer deferred: {oe})")
+
         run_warehouse_sql(f"""
             CREATE TABLE IF NOT EXISTS {GOLD_TABLE} (
                 account_id                INT       NOT NULL,
@@ -861,12 +934,13 @@ def act4_publish():
 
 
 def _churn_rows_in_lakebase():
-    """Return the row count of sales.churn_predictions in Lakebase, or None if
+    """Return the row count of the churn synced table in Lakebase, or None if
     the table doesn't exist yet."""
     with get_conn() as conn:
         cur = conn.cursor()
         cur.execute("""SELECT COUNT(*) FROM information_schema.tables
-                       WHERE table_schema='sales' AND table_name='churn_predictions'""")
+                       WHERE table_schema=%s AND table_name='churn_predictions'""",
+                    (SYNCED_UC_SCHEMA,))
         if cur.fetchone()[0] == 0:
             return None
         cur.execute(f"SELECT COUNT(*) FROM {SYNCED_TABLE}")
@@ -908,9 +982,9 @@ def act4_sync():
     """Step 4b: create the Lakebase synced table from the gold Delta table.
 
     Uses the autoscaling `postgres.create_synced_table` API (not the older
-    database-instance API). The synced table's UC name is
-    for_startups_demos_catalog.sales.churn_predictions, which lands as the
-    Postgres table sales.churn_predictions in the project's production branch.
+    database-instance API). The synced table registers under the gold table's
+    schema (data_science_ml) and lands as the Postgres table
+    data_science_ml.churn_predictions in the project's production branch.
 
     Resumable: sync provisioning + first refresh can take 30-90s. Returns
     ok:false while it's still coming up so the presenter can click again.
@@ -939,11 +1013,9 @@ def act4_sync():
             log.append("Sync pipeline already exists — waiting for the first refresh…")
         except Exception:
             import databricks.sdk.service.postgres as _pg
-            # The UC schema for the synced table's registration must exist.
-            try:
-                w.schemas.create(name=SYNCED_UC_SCHEMA, catalog_name=GOLD_CATALOG)
-            except Exception:
-                pass  # already exists
+            # Reuse the existing `sales` UC schema for the synced table — no new
+            # schema created. (create_database_objects_if_missing handles the
+            # Postgres side if the landing schema needs creating.)
             log.append("Creating the Lakebase synced table from the gold table…")
             w.postgres.create_synced_table(
                 synced_table=_pg.SyncedTable(spec=_pg.SyncedTableSyncedTableSpec(
@@ -985,48 +1057,6 @@ def act4_sync():
         raise
     except Exception as e:
         logger.exception("Act 4 sync failed")
-        log.append(f"ERROR: {e}")
-        raise HTTPException(500, {"log": log, "error": str(e)})
-
-
-@router.post("/act4/rescore")
-def act4_rescore():
-    """Step 4c: re-score the model (UPDATE gold table), then trigger a sync refresh."""
-    log: list[str] = []
-    try:
-        w, _ = get_client()
-        log.append("Retention plays worked — re-scoring accounts in the lakehouse…")
-        run_warehouse_sql(f"""
-            UPDATE {GOLD_TABLE}
-            SET risk_band                 = CASE WHEN account_id % 2 = 0 THEN 'Low' ELSE 'Medium' END,
-                churn_risk_score          = CASE WHEN account_id % 2 = 0 THEN 0.180 ELSE 0.420 END,
-                predicted_arr_at_risk_usd = ROUND(predicted_arr_at_risk_usd * 0.20, 2),
-                top_churn_driver          = 'Recovered after retention play',
-                recommended_action        = CASE WHEN account_id % 2 = 0 THEN 'Explore expansion' ELSE 'Maintain success plan' END,
-                model_version             = 'v2.4',
-                scored_at                 = current_timestamp()
-            WHERE risk_band = 'High'
-        """)
-        log.append("Every High-risk account moved to Low/Medium (model v2.4).")
-
-        # Trigger a sync refresh (Triggered mode) so the new scores flow into
-        # Lakebase. The synced table is backed by a DLT pipeline; refresh it.
-        try:
-            st = w.postgres.get_synced_table(name=f"synced_tables/{SYNCED_TABLE_ID}")
-            pipeline_id = getattr(st.status, "pipeline_id", None) if st.status else None
-            if pipeline_id:
-                w.pipelines.start_update(pipeline_id=pipeline_id)
-                log.append("Triggered a sync refresh — new scores flowing into Lakebase.")
-            else:
-                log.append("Re-scored. Trigger 'Sync now' in the UI if the app doesn't update shortly.")
-        except Exception as e:
-            log.append(f"(sync refresh trigger deferred: {e})")
-
-        invalidate_cache()
-        log.append("Retention Risk will show the High band empty, ARR at risk collapsed.")
-        return {"ok": True, "log": log}
-    except Exception as e:
-        logger.exception("Act 4 rescore failed")
         log.append(f"ERROR: {e}")
         raise HTTPException(500, {"log": log, "error": str(e)})
 

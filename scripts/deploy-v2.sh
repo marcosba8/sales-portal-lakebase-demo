@@ -29,6 +29,7 @@ PROFILE=""
 WAREHOUSE_ID=""          # SQL warehouse for Act 4 (bound to the app as CAN_USE)
 GOLD_CATALOG=""          # UC catalog for the Act 4 gold + synced table
 GOLD_SCHEMA=""           # UC schema for the gold Delta table
+DEMO_SCHEMA_OWNER=""     # stable human owner for the gold schema (survives SP rotation)
 SKIP_BUILD=false
 SKIP_LAKEBASE=false
 
@@ -201,6 +202,8 @@ env:
     value: "${GOLD_CATALOG}"
   - name: GOLD_SCHEMA
     value: "${GOLD_SCHEMA}"
+  - name: DEMO_SCHEMA_OWNER
+    value: "${DEMO_SCHEMA_OWNER}"
 YAML
 
 find "$STAGING_DIR" -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true

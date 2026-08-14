@@ -13,12 +13,18 @@ def list_churn():
             raise HTTPException(503, detail="Churn predictions not yet synced from the lakehouse.")
 
         cur = conn.cursor()
+        # Source account_name (and segment) from sales.accounts by joining on
+        # account_id — the SAME source the "unknown" pre-sync view uses — so the
+        # scored rows are guaranteed to be the exact accounts already shown,
+        # regardless of the names baked into the gold table. The gold/synced
+        # table still drives the scores, bands, ARR, drivers, etc.
         cur.execute("""
-            SELECT account_id, account_name, segment,
-                   churn_risk_score, risk_band, predicted_arr_at_risk_usd,
-                   top_churn_driver, recommended_action, model_version, scored_at
-            FROM sales.churn_predictions
-            ORDER BY churn_risk_score DESC
+            SELECT c.account_id, a.name AS account_name, a.segment,
+                   c.churn_risk_score, c.risk_band, c.predicted_arr_at_risk_usd,
+                   c.top_churn_driver, c.recommended_action, c.model_version, c.scored_at
+            FROM data_science_ml.churn_predictions c
+            JOIN sales.accounts a ON a.id = c.account_id
+            ORDER BY c.churn_risk_score DESC
             LIMIT 200
         """)
         col_names = [desc[0] for desc in cur.description]
@@ -40,7 +46,7 @@ def churn_stats():
                 ROUND(AVG(churn_risk_score), 2) as avg_churn_score,
                 MAX(model_version) as model_version,
                 MAX(scored_at) as scored_at
-            FROM sales.churn_predictions
+            FROM data_science_ml.churn_predictions
         """)
         row = cur.fetchone()
         col_names = [desc[0] for desc in cur.description]

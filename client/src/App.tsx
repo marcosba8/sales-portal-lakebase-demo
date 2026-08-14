@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -124,7 +124,8 @@ const COLORS = {
 const styles: Record<string, React.CSSProperties> = {
   app: {
     fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
-    minHeight: '100vh',
+    height: '100vh',
+    overflow: 'hidden',
     backgroundColor: COLORS.gray50,
     color: COLORS.gray800,
     display: 'flex',
@@ -181,13 +182,77 @@ const styles: Record<string, React.CSSProperties> = {
     borderBottom: `3px solid ${COLORS.accent}`,
     fontWeight: 600,
   },
+  // Top-level row: the app column (left) + the Demo Control console (right),
+  // each a full-height independent surface.
+  body: {
+    flex: 1,
+    display: 'flex',
+    alignItems: 'stretch',
+    minHeight: 0,
+  },
+  // Left column holding the app's own header, nav, content and footer — so the
+  // app chrome stays entirely on the left and never brackets the console.
+  appColumn: {
+    flex: 1,
+    minWidth: 0,
+    display: 'flex',
+    flexDirection: 'column',
+    minHeight: 0,
+  },
   main: {
     flex: 1,
+    minWidth: 0,
     padding: '24px 32px',
-    maxWidth: 1400,
-    width: '100%',
-    margin: '0 auto',
     boxSizing: 'border-box' as const,
+    overflowY: 'auto' as const,
+  },
+  // Fixed ~18% "remote control" panel, scrolls independently of the app.
+  // Dark "operator console" dock — visually distinct from the light app so it
+  // reads as the presenter's remote control, not a feature of the product.
+  panel: {
+    width: '20%',
+    minWidth: 320,
+    maxWidth: 440,
+    flexShrink: 0,
+    backgroundColor: COLORS.primaryDark,
+    borderLeft: `1px solid #000`,
+    boxShadow: '-4px 0 16px rgba(0,0,0,0.25)',
+    padding: '14px 16px 24px',
+    overflowY: 'auto' as const,
+    boxSizing: 'border-box' as const,
+  },
+  panelHeaderBar: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 14,
+    paddingBottom: 12,
+    borderBottom: '1px solid rgba(255,255,255,0.12)',
+  },
+  panelCollapseBtn: {
+    border: '1px solid rgba(255,255,255,0.25)',
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    color: 'rgba(255,255,255,0.8)',
+    borderRadius: 14,
+    padding: '4px 10px',
+    fontSize: 11,
+    fontWeight: 600,
+    cursor: 'pointer',
+  },
+  // Thin tab shown when the panel is collapsed; click to reopen.
+  panelReopen: {
+    flexShrink: 0,
+    width: 40,
+    border: 'none',
+    borderLeft: `1px solid ${COLORS.gray200}`,
+    backgroundColor: COLORS.primary,
+    color: COLORS.white,
+    cursor: 'pointer',
+    fontSize: 12,
+    fontWeight: 700,
+    writingMode: 'vertical-rl' as const,
+    textOrientation: 'mixed' as const,
+    letterSpacing: '0.05em',
   },
   card: {
     backgroundColor: COLORS.white,
@@ -449,6 +514,41 @@ function PipelineLogo() {
   );
 }
 
+/* Per-act feature glyph. Rendered inside the round badge in the Demo Control
+   panel, replacing the old sequence numbers so the acts read as a modular menu
+   (use any part) rather than an ordered checklist. */
+function ActIcon({ name, color }: { name: ActIconName; color: string }) {
+  const p = { stroke: color, strokeWidth: 2, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const, fill: 'none' };
+  const paths: Record<ActIconName, React.ReactNode> = {
+    // branch: a fork splitting off a trunk (zero-copy branching)
+    branch: (<>
+      <circle cx="7" cy="4" r="2" {...p} /><circle cx="7" cy="16" r="2" {...p} /><circle cx="15" cy="9" r="2" {...p} />
+      <path d="M7 6v8M7 11h3.5a3 3 0 003-3" {...p} />
+    </>),
+    // rewind: a clock being turned back (point-in-time recovery)
+    rewind: (<>
+      <path d="M4 10a6 6 0 106-6 6 6 0 00-5 2.6" {...p} /><path d="M5 3v3h3" {...p} /><path d="M10 7v3l2 2" {...p} />
+    </>),
+    // syncIn: arrow flowing down/in (lakehouse -> lakebase)
+    syncIn: (<>
+      <path d="M10 3v10" {...p} /><path d="M6 9l4 4 4-4" {...p} /><path d="M4 16h12" {...p} />
+    </>),
+    // syncOut: arrow flowing up/out (lakebase -> lakehouse, CDF)
+    syncOut: (<>
+      <path d="M10 17V7" {...p} /><path d="M6 11l4-4 4 4" {...p} /><path d="M4 4h12" {...p} />
+    </>),
+    // surge: a rising spike (load test / autoscaling)
+    surge: (<>
+      <path d="M3 15l4-6 3 3 4-8" {...p} /><path d="M14 4h3v3" {...p} />
+    </>),
+  };
+  return (
+    <svg width="18" height="18" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+      {paths[name]}
+    </svg>
+  );
+}
+
 /* ------------------------------------------------------------------ */
 /*  Mock data -- used when the API is unreachable (local dev preview)  */
 /* ------------------------------------------------------------------ */
@@ -594,13 +694,24 @@ function buildMockChurn(accounts: Account[]): ChurnPrediction[] {
 
 /* Fetch that falls back to mock data when the API is unreachable. */
 async function apiOrMock<T>(url: string, mock: () => T): Promise<{ data: T; isMock: boolean }> {
+  // Only fall back to mock data on a genuine connection failure (fetch throws —
+  // e.g. local preview with no backend). A valid HTTP error like 503/404 means
+  // the backend IS reachable and is intentionally reporting a feature as
+  // unavailable (e.g. Opportunities right after the disaster act drops the
+  // table); in that case we must NOT show mock data or flip to "not connected"
+  // — the caller renders its proper Unavailable state instead.
+  let r: Response;
   try {
-    const r = await fetch(url);
-    if (!r.ok) throw new Error(`${r.status}`);
-    return { data: await r.json(), isMock: false };
+    r = await fetch(url);
   } catch {
-    return { data: mock(), isMock: true };
+    return { data: mock(), isMock: true };   // real network failure → preview
   }
+  if (!r.ok) {
+    const err = new Error(`${r.status}`) as Error & { httpStatus?: number };
+    err.httpStatus = r.status;
+    throw err;                               // reachable backend said "no" → propagate
+  }
+  return { data: await r.json(), isMock: false };
 }
 
 /* ------------------------------------------------------------------ */
@@ -611,19 +722,26 @@ function AccountsTab({ features, onMock }: { features: Features; onMock: () => v
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [unavailable, setUnavailable] = useState(false);
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [detailData, setDetailData] = useState<Account | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
 
   useEffect(() => {
     if (!features.accounts_available) { setLoading(false); return; }
+    setUnavailable(false);
     apiOrMock('/api/accounts', () => ({ accounts: buildMockAccounts(), features: MOCK_FEATURES }))
       .then(({ data, isMock }) => {
         setAccounts((data as any).accounts);
         if (isMock) onMock();
         setLoading(false);
       })
-      .catch(e => { setError(String(e.message)); setLoading(false); });
+      .catch(e => {
+        // 503 = backend up but service intentionally unavailable → graceful card.
+        if ((e as { httpStatus?: number }).httpStatus === 503) setUnavailable(true);
+        else setError(String(e.message));
+        setLoading(false);
+      });
   }, [features.accounts_available]);
 
   const toggleExpand = useCallback((id: number) => {
@@ -636,7 +754,7 @@ function AccountsTab({ features, onMock }: { features: Features; onMock: () => v
       .catch(() => setDetailLoading(false));
   }, [expandedId, accounts]);
 
-  if (!features.accounts_available) {
+  if (!features.accounts_available || unavailable) {
     return (
       <UnavailableCard
         title="Accounts Service Temporarily Unavailable"
@@ -803,39 +921,216 @@ function AccountsTab({ features, onMock }: { features: Features; onMock: () => v
 /*  Opportunities Tab                                                  */
 /* ------------------------------------------------------------------ */
 
+/* Product lines & stage→probability must mirror the backend (opportunities.py). */
+const PRODUCT_LINES = ['Platform', 'Data Warehouse', 'ML/AI', 'Governance', 'Streaming'];
+const STAGE_PROBABILITY: Record<string, number> = {
+  Prospecting: 10, Qualification: 25, Proposal: 50, Negotiation: 75, 'Closed Won': 100, 'Closed Lost': 0,
+};
+
+/* Modal to create a new opportunity — the app's write-back path (feeds Lakebase
+   CDF). Account is a dropdown of EXISTING accounts only (no fake customers);
+   probability is derived from the chosen stage, matching the backend. */
+function AddOpportunityModal({ onClose, onAdded }: {
+  onClose: () => void;
+  onAdded: (created: Opportunity) => void;
+}) {
+  const [accounts, setAccounts] = useState<Account[]>([]);
+  const [accountId, setAccountId] = useState<number | ''>('');
+  const [productLine, setProductLine] = useState(PRODUCT_LINES[0]);
+  const [stage, setStage] = useState('Prospecting');
+  const [amount, setAmount] = useState('');
+  // Default close date: +45 days, matching the seed cadence.
+  const [closeDate, setCloseDate] = useState(() => {
+    const d = new Date(); d.setDate(d.getDate() + 45);
+    return d.toISOString().slice(0, 10);
+  });
+  const [submitting, setSubmitting] = useState(false);
+  const [err, setErr] = useState('');
+
+  // Load the existing accounts for the dropdown.
+  useEffect(() => {
+    apiOrMock('/api/accounts', () => ({ accounts: buildMockAccounts(), features: MOCK_FEATURES }))
+      .then(res => {
+        const list = (res.data as any).accounts as Account[];
+        setAccounts(list);
+        if (list.length) setAccountId(list[0].id);
+      })
+      .catch(() => setErr('Could not load accounts.'));
+  }, []);
+
+  const submit = () => {
+    setErr('');
+    if (accountId === '') { setErr('Pick an account.'); return; }
+    const amt = parseFloat(amount);
+    if (!amt || amt <= 0) { setErr('Enter an amount greater than 0.'); return; }
+    setSubmitting(true);
+    fetch('/api/opportunities', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        account_id: accountId, product_line: productLine, stage,
+        amount_usd: amt, close_date: closeDate,
+      }),
+    })
+      .then(async r => {
+        const body = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(body?.detail || `Request failed (${r.status})`);
+        onAdded(body.opportunity as Opportunity);
+      })
+      .catch(e => { setErr(String(e.message)); setSubmitting(false); });
+  };
+
+  const field: React.CSSProperties = {
+    width: '100%', padding: '9px 11px', borderRadius: 8, fontSize: 14,
+    border: `1px solid ${COLORS.gray300}`, backgroundColor: COLORS.white, color: COLORS.gray800,
+    boxSizing: 'border-box',
+  };
+  const label: React.CSSProperties = { fontSize: 12, fontWeight: 600, color: COLORS.gray600, marginBottom: 5, display: 'block' };
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed', inset: 0, backgroundColor: 'rgba(14,27,32,0.55)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
+      }}
+    >
+      <div onClick={e => e.stopPropagation()} style={{
+        backgroundColor: COLORS.white, borderRadius: 14, width: 460, maxWidth: '92vw',
+        boxShadow: '0 20px 60px rgba(0,0,0,0.35)', overflow: 'hidden',
+      }}>
+        <div style={{ padding: '18px 22px', borderBottom: `1px solid ${COLORS.gray200}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ fontSize: 17, fontWeight: 700, color: COLORS.gray800 }}>New Opportunity</div>
+          <button onClick={onClose} style={{ border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 20, color: COLORS.gray500, lineHeight: 1 }}>×</button>
+        </div>
+
+        <div style={{ padding: 22, display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div>
+            <label style={label}>Account</label>
+            <select style={field} value={accountId} onChange={e => setAccountId(Number(e.target.value))}>
+              {accounts.map(a => <option key={a.id} value={a.id}>{a.name} · {a.segment}</option>)}
+            </select>
+          </div>
+
+          <div style={{ display: 'flex', gap: 12 }}>
+            <div style={{ flex: 1 }}>
+              <label style={label}>Product Line</label>
+              <select style={field} value={productLine} onChange={e => setProductLine(e.target.value)}>
+                {PRODUCT_LINES.map(p => <option key={p} value={p}>{p}</option>)}
+              </select>
+            </div>
+            <div style={{ flex: 1 }}>
+              <label style={label}>Stage</label>
+              <select style={field} value={stage} onChange={e => setStage(e.target.value)}>
+                {Object.keys(STAGE_PROBABILITY).map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', gap: 12 }}>
+            <div style={{ flex: 1 }}>
+              <label style={label}>Amount (USD)</label>
+              <input style={field} type="number" min={1} placeholder="e.g. 120000"
+                value={amount} onChange={e => setAmount(e.target.value)} />
+            </div>
+            <div style={{ flex: 1 }}>
+              <label style={label}>Close Date</label>
+              <input style={field} type="date" value={closeDate} onChange={e => setCloseDate(e.target.value)} />
+            </div>
+          </div>
+
+          <div style={{ fontSize: 12, color: COLORS.gray500 }}>
+            Probability auto-set from stage: <strong style={{ color: COLORS.gray700 }}>{STAGE_PROBABILITY[stage]}%</strong>
+          </div>
+
+          {err && <div style={{ fontSize: 13, color: COLORS.danger }}>{err}</div>}
+        </div>
+
+        <div style={{ padding: '14px 22px', borderTop: `1px solid ${COLORS.gray200}`, display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+          <button onClick={onClose} style={{
+            padding: '9px 16px', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer',
+            border: `1px solid ${COLORS.gray300}`, backgroundColor: COLORS.white, color: COLORS.gray700,
+          }}>Cancel</button>
+          <button onClick={submit} disabled={submitting} style={{
+            padding: '9px 18px', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: submitting ? 'not-allowed' : 'pointer',
+            border: 'none', backgroundColor: COLORS.accent, color: COLORS.white, opacity: submitting ? 0.6 : 1,
+          }}>{submitting ? 'Adding…' : 'Add Opportunity'}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function OpportunitiesTab({ features, onMock }: { features: Features; onMock: () => void }) {
   const [opps, setOpps] = useState<Opportunity[]>([]);
   const [stats, setStats] = useState<OppStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  // Set when the backend returns 503 (pipeline intentionally unavailable, e.g.
+  // right after the disaster act) before the 30s feature poll catches up.
+  const [unavailable, setUnavailable] = useState(false);
+  const [showAdd, setShowAdd] = useState(false);
+  const [newOppId, setNewOppId] = useState<number | null>(null);
+  const newRowRef = useRef<HTMLTableRowElement | null>(null);
+
+  const mockOpps = () => buildMockOpportunities(buildMockAccounts());
+  const mockStats = (list: Opportunity[]): { stats: OppStats } => {
+    const total = list.reduce((s, o) => s + o.amount_usd, 0);
+    const weighted = list.reduce((s, o) => s + o.weighted_amount, 0);
+    return { stats: {
+      total_opps: list.length,
+      total_pipeline_usd: total,
+      weighted_pipeline_usd: weighted,
+      avg_deal_size_usd: list.length ? Math.round(total / list.length) : 0,
+    }};
+  };
+
+  // Fetch opportunities + KPIs together (used on load and after an insert so the
+  // stat cards recompute live from the DB — the source of truth).
+  const refresh = useCallback(() => {
+    const mo = mockOpps();
+    return Promise.all([
+      apiOrMock('/api/opportunities', () => ({ opportunities: mo, features: MOCK_FEATURES })),
+      apiOrMock('/api/opportunities/stats', () => ({ ...mockStats(mo), features: MOCK_FEATURES })),
+    ]).then(([oppRes, statsRes]) => {
+      setOpps((oppRes.data as any).opportunities);
+      setStats((statsRes.data as any).stats);
+      if (oppRes.isMock || statsRes.isMock) onMock();
+    });
+  }, [onMock]);
 
   useEffect(() => {
     if (!features.opportunities_available) { setLoading(false); return; }
-    const mockOpps = buildMockOpportunities(buildMockAccounts());
-    const mockStats = (): { stats: OppStats } => {
-      const total = mockOpps.reduce((s, o) => s + o.amount_usd, 0);
-      const weighted = mockOpps.reduce((s, o) => s + o.weighted_amount, 0);
-      return { stats: {
-        total_opps: mockOpps.length,
-        total_pipeline_usd: total,
-        weighted_pipeline_usd: weighted,
-        avg_deal_size_usd: Math.round(total / mockOpps.length),
-      }};
-    };
-    Promise.all([
-      apiOrMock('/api/opportunities', () => ({ opportunities: mockOpps, features: MOCK_FEATURES })),
-      apiOrMock('/api/opportunities/stats', () => ({ ...mockStats(), features: MOCK_FEATURES })),
-    ])
-      .then(([oppRes, statsRes]) => {
-        setOpps((oppRes.data as any).opportunities);
-        setStats((statsRes.data as any).stats);
-        if (oppRes.isMock || statsRes.isMock) onMock();
+    setUnavailable(false);
+    refresh()
+      .then(() => setLoading(false))
+      .catch(e => {
+        // A 503 means the pipeline is intentionally down (e.g. disaster act) —
+        // show the graceful Unavailable card, not a raw error, and don't nag.
+        if ((e as { httpStatus?: number }).httpStatus === 503) setUnavailable(true);
+        else setError(String(e.message));
         setLoading(false);
-      })
-      .catch(e => { setError(String(e.message)); setLoading(false); });
-  }, [features.opportunities_available]);
+      });
+  }, [features.opportunities_available, refresh]);
 
-  if (!features.opportunities_available) {
+  // When a new opportunity is added, scroll it into view (the table sorts by
+  // close date, so it may not land at the top) and flash it briefly.
+  useEffect(() => {
+    if (newOppId == null) return;
+    newRowRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    const t = setTimeout(() => setNewOppId(null), 2500);
+    return () => clearTimeout(t);
+  }, [newOppId, opps]);
+
+  const handleAdded = (created: Opportunity) => {
+    setShowAdd(false);
+    // Optimistically prepend, then re-fetch so the KPIs + ordering are exact.
+    setOpps(prev => [created, ...prev.filter(o => o.id !== created.id)]);
+    setNewOppId(created.id);
+    refresh().catch(() => { /* keep optimistic row on refresh failure */ });
+  };
+
+  if (!features.opportunities_available || unavailable) {
     return (
       <UnavailableCard
         title="Pipeline Temporarily Unavailable"
@@ -871,7 +1166,19 @@ function OpportunitiesTab({ features, onMock }: { features: Features; onMock: ()
       )}
 
       <div style={styles.card}>
-        <div style={styles.cardTitle}>Opportunity Pipeline</div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+          <div style={{ ...styles.cardTitle, marginBottom: 0 }}>Opportunity Pipeline</div>
+          <button
+            onClick={() => setShowAdd(true)}
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px',
+              borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600,
+              backgroundColor: COLORS.accent, color: COLORS.white,
+            }}
+          >
+            + New Opportunity
+          </button>
+        </div>
         <div style={{ overflowX: 'auto' }}>
           <table style={styles.table}>
             <thead>
@@ -887,9 +1194,27 @@ function OpportunitiesTab({ features, onMock }: { features: Features; onMock: ()
               </tr>
             </thead>
             <tbody>
-              {opps.map((o, i) => (
-                <tr key={o.id} style={{ backgroundColor: i % 2 === 0 ? COLORS.white : COLORS.gray50 }}>
-                  <td style={{ ...styles.td, fontWeight: 600 }}>{o.account_name}</td>
+              {opps.map((o, i) => {
+                const isNew = o.id === newOppId;
+                return (
+                <tr
+                  key={o.id}
+                  ref={isNew ? newRowRef : undefined}
+                  style={{
+                    backgroundColor: isNew ? COLORS.successBg : (i % 2 === 0 ? COLORS.white : COLORS.gray50),
+                    transition: 'background-color 1.2s ease',
+                  }}
+                >
+                  <td style={{ ...styles.td, fontWeight: 600 }}>
+                    {o.account_name}
+                    {isNew && (
+                      <span style={{
+                        marginLeft: 8, fontSize: 10, fontWeight: 700, color: COLORS.success,
+                        backgroundColor: COLORS.white, border: `1px solid ${COLORS.success}`,
+                        borderRadius: 10, padding: '1px 7px', verticalAlign: 'middle',
+                      }}>NEW</span>
+                    )}
+                  </td>
                   <td style={styles.td}>{o.product_line}</td>
                   <td style={styles.td}>{o.close_date}</td>
                   <td style={{ ...styles.td, textAlign: 'center' }}>#{o.opp_number}</td>
@@ -898,7 +1223,8 @@ function OpportunitiesTab({ features, onMock }: { features: Features; onMock: ()
                   <td style={{ ...styles.td, textAlign: 'right' }}>{fmtPct(o.probability)}</td>
                   <td style={{ ...styles.td, textAlign: 'right', fontWeight: 700, color: COLORS.primary }}>{fmtUSD(o.weighted_amount)}</td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -906,6 +1232,13 @@ function OpportunitiesTab({ features, onMock }: { features: Features; onMock: ()
           <div style={{ textAlign: 'center', padding: 40, color: COLORS.gray400 }}>No opportunities in pipeline.</div>
         )}
       </div>
+
+      {showAdd && (
+        <AddOpportunityModal
+          onClose={() => setShowAdd(false)}
+          onAdded={handleAdded}
+        />
+      )}
     </>
   );
 }
@@ -947,6 +1280,18 @@ function RetentionRiskTab({ features, onMock }: { features: Features; onMock: ()
   const [stats, setStats] = useState<ChurnStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  // Accounts shown in the "unknown" (pre-sync) state — same customers, but with
+  // their churn insight grayed out until the data science model syncs in.
+  const [unknownAccounts, setUnknownAccounts] = useState<Account[]>([]);
+
+  // In the pre-sync state, list the accounts with blank/grayed churn columns so
+  // the audience sees "we have these customers, but no insight yet".
+  useEffect(() => {
+    if (features.churn_active) return;
+    apiOrMock('/api/accounts', () => ({ accounts: buildMockAccounts(), features: MOCK_FEATURES }))
+      .then(({ data }) => setUnknownAccounts((data as any).accounts))
+      .catch(() => { /* accounts not ready yet — grayed table just shows empty */ });
+  }, [features.churn_active]);
 
   useEffect(() => {
     if (!features.churn_active) { setLoading(false); return; }
@@ -973,28 +1318,86 @@ function RetentionRiskTab({ features, onMock }: { features: Features; onMock: ()
         if (rowsRes.isMock || statsRes.isMock) onMock();
         setLoading(false);
       })
-      .catch(e => { setError(String(e.message)); setLoading(false); });
+      .catch(e => {
+        // 503 here just means churn isn't synced yet — fall through to the
+        // "Coming Soon" state rather than showing a raw error or mock data.
+        if ((e as { httpStatus?: number }).httpStatus !== 503) setError(String(e.message));
+        setLoading(false);
+      });
   }, [features.churn_active]);
 
   if (!features.churn_active) {
+    // "Unknown" state — the customers are here, but their churn insight is not
+    // yet known. Same layout as the scored view, with every insight field
+    // grayed to "—". When the DS model syncs, these rows populate.
+    const dash = <span style={{ color: COLORS.gray300, fontWeight: 700 }}>—</span>;
     return (
-      <div style={styles.unavailable}>
-        <div style={{ fontSize: 40, marginBottom: 16, opacity: 0.5 }}>&#8635;</div>
-        <div style={styles.unavailableTitle}>Retention Risk — Coming Soon</div>
-        <div style={styles.unavailableText}>
-          This page will be powered by the ML team&apos;s <strong>account churn-prediction model</strong>,
-          published as a gold table in the lakehouse. Once that table is <strong>synced into Lakebase</strong>,
-          this page will light up automatically — no app redeploy required.
-        </div>
+      <>
         <div style={{
-          marginTop: 20, display: 'inline-flex', alignItems: 'center', gap: 8,
-          padding: '8px 16px', borderRadius: 20, backgroundColor: COLORS.white,
-          border: `1px dashed ${COLORS.gray300}`, fontSize: 13, color: COLORS.gray500,
+          display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16,
+          padding: '10px 16px', borderRadius: 10, backgroundColor: COLORS.warningBg,
+          border: `1px solid ${COLORS.warning}`, fontSize: 13, color: COLORS.gray700,
         }}>
-          <span style={{ ...styles.statusDot, backgroundColor: COLORS.warning, marginRight: 0 }} />
-          Waiting for lakehouse sync&nbsp;&middot;&nbsp;<code style={{ color: COLORS.primary }}>sales.churn_predictions</code>
+          <span style={{ ...styles.statusDot, backgroundColor: COLORS.warning, marginRight: 0, animation: 'pulse 1.6s ease-in-out infinite' }} />
+          <span><strong>No churn insight yet.</strong> Awaiting the data science team&apos;s model to sync in from the lakehouse.</span>
+          <span style={{ marginLeft: 'auto', color: COLORS.gray400 }}><code style={{ color: COLORS.primary }}>data_science_ml.churn_predictions</code></span>
         </div>
-      </div>
+
+        {/* Grayed KPI tiles — structure present, values unknown. */}
+        <div style={styles.statsGrid}>
+          {['Total ARR at Risk', 'High-Risk Accounts', 'Avg Churn Score', 'Accounts Scored'].map(label => (
+            <div key={label} style={{ ...styles.statCard, opacity: 0.55 }}>
+              <div style={{ ...styles.statValue, color: COLORS.gray300 }}>—</div>
+              <div style={styles.statLabel}>{label}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Grayed detail table — same customers, insight columns blank. */}
+        <div style={styles.card}>
+          <div style={styles.cardTitle}>Account Churn Predictions</div>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={styles.table}>
+              <thead>
+                <tr>
+                  <th style={styles.th}>Account</th>
+                  <th style={styles.th}>Segment</th>
+                  <th style={styles.th}>Risk Score</th>
+                  <th style={styles.th}>Band</th>
+                  <th style={styles.th}>ARR at Risk</th>
+                  <th style={styles.th}>Top Driver</th>
+                  <th style={styles.th}>Recommended Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {unknownAccounts.map((a, i) => (
+                  <tr key={a.id} style={{ backgroundColor: i % 2 === 0 ? COLORS.white : COLORS.gray50 }}>
+                    <td style={{ ...styles.td, fontWeight: 600 }}>{a.name}</td>
+                    <td style={styles.td}>{a.segment}</td>
+                    <td style={styles.td}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{ width: 44, height: 6, borderRadius: 3, backgroundColor: COLORS.gray200, display: 'inline-block' }} />
+                        {dash}
+                      </span>
+                    </td>
+                    <td style={styles.td}>
+                      <span style={{ ...styles.badge, backgroundColor: COLORS.gray100, color: COLORS.gray400 }}>Unknown</span>
+                    </td>
+                    <td style={{ ...styles.td, textAlign: 'right' }}>{dash}</td>
+                    <td style={styles.td}>{dash}</td>
+                    <td style={styles.td}>{dash}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {unknownAccounts.length === 0 && (
+            <div style={{ textAlign: 'center', padding: 40, color: COLORS.gray400 }}>
+              Populate the app (Setup) to load customers, then sync the churn model to light up this page.
+            </div>
+          )}
+        </div>
+      </>
     );
   }
 
@@ -1013,7 +1416,7 @@ function RetentionRiskTab({ features, onMock }: { features: Features; onMock: ()
   const maxSeg = Math.max(1, ...segEntries.map(e => e[1]));
 
   return (
-    <>
+    <div style={{ animation: 'churnPopulate 0.5s ease-out' }}>
       {/* Synced-source provenance banner */}
       {stats && (
         <div style={{
@@ -1114,7 +1517,7 @@ function RetentionRiskTab({ features, onMock }: { features: Features; onMock: ()
           <div style={{ textAlign: 'center', padding: 40, color: COLORS.gray400 }}>No churn predictions synced yet.</div>
         )}
       </div>
-    </>
+    </div>
   );
 }
 
@@ -1180,8 +1583,13 @@ interface DemoAction {
   codeMood?: 'normal' | 'disaster';
 }
 
+type ActIconName = 'branch' | 'rewind' | 'syncIn' | 'syncOut' | 'surge';
+
 interface DemoAct {
   num: number;
+  /* Feature glyph shown instead of a sequence number — signals the acts are a
+     modular menu (use any part), not an ordered checklist. */
+  icon?: ActIconName;
   title: string;
   feature: string;
   say: string;          // presenter talk-track (the "SAY" line)
@@ -1191,14 +1599,19 @@ interface DemoAct {
   watchLabel?: string;
   /* When true, this act renders the interactive load-test dashboard. */
   loadTest?: boolean;
+  /* Setup steps (create tables + populate data) are app/Postgres bootstrapping,
+     not a Lakebase feature — they render as a neutral "Setup" block above the
+     numbered acts and auto-collapse once complete. */
+  setup?: boolean;
 }
 
 const DEMO_ACTS: DemoAct[] = [
   {
-    num: 1,
-    title: 'Setup & Seed Data',
-    feature: 'Autoscaling · OAuth roles',
-    say: '“Imagine a B2B software company that runs its whole sales org on a live pipeline portal. Lakebase gives them managed Postgres 17 that scales to zero when the team is offline. First we create the tables — empty — then seed realistic data.”',
+    num: 0,
+    setup: true,
+    title: 'Prepare the app',
+    feature: 'Create tables · Populate data',
+    say: '“First we stand up the app: create the tables — empty — then populate realistic data so the portal comes to life. Then we’ll explore what makes Lakebase different.”',
     actions: [
       {
         id: 'act1_create',
@@ -1224,14 +1637,14 @@ const DEMO_ACTS: DemoAct[] = [
       },
       {
         id: 'act1_seed',
-        label: '2. Seed data',
-        runningLabel: 'Seeding…',
-        doneLabel: 'Seeded ✓',
+        label: '2. Populate data',
+        runningLabel: 'Populating…',
+        doneLabel: 'Populated ✓',
         durationMs: 2200,
         requires: ['act1_create'],
         endpoint: '/api/demo/act1/seed',
         log: [
-          'Seeding realistic B2B data…',
+          'Populating realistic B2B data…',
           '  accounts: 30 rows',
           '  opportunities: 100 rows',
           '  sales_activities: 81 rows',
@@ -1244,7 +1657,8 @@ const DEMO_ACTS: DemoAct[] = [
     ],
   },
   {
-    num: 2,
+    num: 1,
+    icon: 'branch',
     title: 'Branching & Schema Evolution',
     feature: 'Zero-copy branching',
     say: '“Instead of developing on production or spinning up a slow replica, Lakebase branching creates a zero-copy clone in seconds. Watch the creation time.”',
@@ -1337,43 +1751,32 @@ VALUES
     ],
   },
   {
-    num: 3,
+    num: 2,
+    icon: 'rewind',
     title: 'Disaster & PITR Recovery',
     feature: 'Point-in-Time Recovery',
     say: '“Someone accidentally drops the opportunities table. In a traditional setup you’d restore last night’s backup and lose a day of deals. With Lakebase PITR, we lose nothing.”',
     actions: [
       {
-        id: 'act3_record',
-        label: '1. Record recovery point',
-        runningLabel: 'Recording…',
-        doneLabel: 'Recovery point set ✓',
-        durationMs: 1400,
-        requires: ['act1_seed'],
-        endpoint: '/api/demo/act3/record',
-        log: [
-          'Recovery point recorded.',
-          'Opportunities right now: 100 deals — this is what we must not lose.',
-          "In a real incident you'd pull this timestamp from your monitoring.",
-        ],
-      },
-      {
-        id: 'act3_drop',
-        label: '2. Simulate disaster — DROP opportunities',
-        runningLabel: 'Dropping table…',
+        id: 'act3_disaster',
+        label: '1. Simulate disaster — DROP opportunities',
+        runningLabel: 'Recording safe point, then dropping…',
         doneLabel: 'Pipeline lost ✗',
-        durationMs: 2600,
-        requires: ['act3_record'],
+        durationMs: 4200,
+        requires: ['act1_seed'],
         danger: true,
-        endpoint: '/api/demo/act3/drop',
+        endpoint: '/api/demo/act3/disaster',
         codeTitle: 'S.O.S. — production incident',
         codeMood: 'disaster',
         codeStatements: [
+          '-- first, note where we are (recovery point) …',
           '-- an ops engineer meant to drop a temp table…',
           'DROP TABLE sales.opportunities CASCADE;',
           '-- 💀  the entire pipeline is gone',
           '-- 🆘  S.O.S.  the whole sales org just lost its deals',
         ],
         log: [
+          'Recovery point recorded — 100 deals safe.',
           'DISASTER: DROP TABLE sales.opportunities CASCADE',
           'The entire pipeline is gone.',
           'App Opportunities tab → "Pipeline Temporarily Unavailable".',
@@ -1385,11 +1788,11 @@ VALUES
       },
       {
         id: 'act3_pitr',
-        label: '3. Create Point-in-Time recovery branch',
+        label: '2. Create Point-in-Time recovery branch',
         runningLabel: 'Rewinding time…',
         doneLabel: 'Data is safe ✓',
         durationMs: 3200,
-        requires: ['act3_drop'],
+        requires: ['act3_disaster'],
         endpoint: '/api/demo/act3/pitr',
         log: [
           'Rewinding to the pre-disaster moment on an isolated branch…',
@@ -1402,7 +1805,7 @@ VALUES
       },
       {
         id: 'act3_restore',
-        label: '4. Restore to production',
+        label: '3. Restore to production',
         runningLabel: 'Restoring…',
         doneLabel: 'Recovered ✓',
         durationMs: 2600,
@@ -1422,8 +1825,9 @@ VALUES
     ],
   },
   {
-    num: 4,
-    title: 'Synced Tables — Lakehouse to App',
+    num: 3,
+    icon: 'syncIn',
+    title: 'Synced Tables — Lakehouse to Lakebase',
     feature: 'Lakehouse → Lakebase sync',
     say: '“The ML team trained a churn model. Its output is a gold table in the lakehouse. We publish it, sync it into Lakebase — no ETL glue, no redeploy — and the Retention Risk page lights up. Then we re-score and watch it flow through.”',
     actions: [
@@ -1438,7 +1842,7 @@ VALUES
         log: [
           "Building the ML team's gold table via the SQL warehouse…",
           'Scored 30 accounts: 12 High, 8 Medium, 10 Low.',
-          'Published: for_startups_demos_catalog.sales_ml.account_churn_predictions',
+          'Published: for_startups_demos_catalog.data_science_ml.account_churn_predictions',
         ],
         reminder: {
           text: 'This gold table lives in the lakehouse (Unity Catalog). Next we sync it into Lakebase so the app can read it.',
@@ -1459,44 +1863,79 @@ VALUES
         ],
         effects: { churn_active: true },
         reminder: {
-          text: 'Open the Retention Risk tab — it just lit up with churn scores, risk bands, and ARR at risk. No app redeploy. Optional: open the sync pipeline in the Lakebase UI to show it running (you can even hit "Sync now").',
+          text: 'Open the Retention Risk tab — it was grayed out ("no insight yet"), and now the same customers light up with churn scores, risk bands, and ARR at risk. No app redeploy. Optional: open the sync pipeline in the Lakebase UI to show it running.',
+        },
+      },
+    ],
+  },
+  {
+    // PLACEHOLDER — UI only, backend not yet wired. These steps have no
+    // `endpoint`, so runAction falls back to the built-in simulated log stream.
+    // Feature ref: https://docs.databricks.com/aws/en/oltp/projects/lakebase-cdf
+    // CDF is the mirror of Synced Tables: app → lakehouse (every insert/update/
+    // delete on a Lakebase Postgres table is captured to Delta in Unity Catalog).
+    num: 4,
+    icon: 'syncOut',
+    title: 'Change Data Feed — Lakebase to Lakehouse',
+    feature: 'Lakebase CDF',
+    say: '“Synced tables brought lakehouse data into the app. Change Data Feed does the reverse: every insert, update, and delete a rep makes in the app is captured from the write-ahead log and lands as a Delta table in Unity Catalog — no external CDC infrastructure. That’s the operational database feeding the analytics estate.”',
+    actions: [
+      {
+        id: 'act_cdf_enable',
+        label: '1. Enable Change Data Feed on the schema',
+        runningLabel: 'Enabling CDF…',
+        doneLabel: 'CDF enabled ✓',
+        durationMs: 2400,
+        requires: ['act1_seed'],
+        log: [
+          '(placeholder — backend not wired yet)',
+          'Enabling Change Data Feed on schema sales…',
+          'All current & future tables now captured to Delta.',
+          'Changes batch to Unity Catalog every ~15s from the WAL.',
+        ],
+        reminder: {
+          text: 'CDF is enabled at the schema level — every table is now streaming its inserts/updates/deletes to the lakehouse.',
         },
       },
       {
-        id: 'act4_rescore',
-        label: '3. Re-score model (the payoff)',
-        runningLabel: 'Re-scoring…',
-        doneLabel: 'Re-scored ✓',
-        durationMs: 3000,
-        requires: ['act4_sync'],
-        endpoint: '/api/demo/act4/rescore',
-        codeTitle: 'Re-scoring the model — lakehouse UPDATE',
-        codeStatements: [
-          '-- the reps acted on the recommendations; the ML team re-scores',
-          `UPDATE for_startups_demos_catalog.sales_ml.account_churn_predictions
-SET risk_band                 = CASE WHEN account_id % 2 = 0 THEN 'Low' ELSE 'Medium' END,
-    churn_risk_score          = CASE WHEN account_id % 2 = 0 THEN 0.180 ELSE 0.420 END,
-    predicted_arr_at_risk_usd = ROUND(predicted_arr_at_risk_usd * 0.20, 2),
-    model_version             = 'v2.4',
-    scored_at                 = current_timestamp()
-WHERE risk_band = 'High';`,
-          '-- trigger the Lakebase sync to carry the new scores over',
-          'REFRESH SYNCED TABLE sales.churn_predictions;',
-        ],
+        id: 'act_cdf_change',
+        label: '2. Make a change in the app (new opportunity)',
+        runningLabel: 'Writing to Lakebase…',
+        doneLabel: 'Change captured ✓',
+        durationMs: 2400,
+        requires: ['act_cdf_enable'],
         log: [
-          'Retention plays worked — re-scoring accounts in the lakehouse…',
-          'Every High-risk account moved to Low/Medium (model v2.4).',
-          'Triggered a sync refresh — new scores flowing into Lakebase.',
-          'Retention Risk will show the High band empty, ARR at risk collapsed.',
+          '(placeholder — backend not wired yet)',
+          'Rep creates a new opportunity in the app…',
+          'INSERT committed to sales.opportunities.',
+          'Change picked up from the WAL → queued for the change feed.',
         ],
         reminder: {
-          text: 'Reload Retention Risk — the High band is empty and ARR at risk collapsed. The lakehouse re-scored, the sync carried it over, the app just read it. Zero redeploys.',
+          text: 'A normal app write — the presenter can create/edit an opportunity in the Opportunities tab to make this real.',
+        },
+      },
+      {
+        id: 'act_cdf_query',
+        label: '3. Query the change feed in the lakehouse',
+        runningLabel: 'Querying Delta change feed…',
+        doneLabel: 'Change visible in Delta ✓',
+        durationMs: 2400,
+        requires: ['act_cdf_change'],
+        log: [
+          '(placeholder — backend not wired yet)',
+          'Reading the CDF Delta table in Unity Catalog…',
+          'Found the INSERT: _change_type=insert, LSN, txid, commit_ts.',
+          'The app write is now queryable in the lakehouse — zero ETL glue.',
+        ],
+        reminder: {
+          text: 'The opportunity created in the app is now a row in the CDF Delta table — bidirectional: lakehouse→app (sync) and app→lakehouse (CDF).',
         },
       },
     ],
   },
   {
     num: 5,
+    icon: 'surge',
     title: 'End-of-Quarter Load Test & Autoscaling',
     feature: 'Observability · Autoscaling',
     say: '“It’s the last day of the quarter. First 250 reps pile into the portal — then a second wave doubles it to 500 concurrent connections hammering the database. Open the Lakebase Monitoring graph, launch the surge, and watch compute scale up to absorb it with no config change and no downtime — then scale back to zero when the rush is over.”',
@@ -1517,8 +1956,8 @@ WHERE risk_band = 'High';`,
 const demoStyles: Record<string, React.CSSProperties> = {
   actGrid: {
     display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))',
-    gap: 20,
+    gridTemplateColumns: '1fr',
+    gap: 16,
   },
   actCard: {
     backgroundColor: COLORS.white,
@@ -1541,6 +1980,57 @@ const demoStyles: Record<string, React.CSSProperties> = {
     fontSize: 14,
     fontWeight: 700,
     flexShrink: 0,
+  },
+  // Round badge holding the per-act feature glyph (replaces the number badge).
+  actIconBadge: {
+    width: 32,
+    height: 32,
+    borderRadius: '50%',
+    backgroundColor: COLORS.accent,
+    color: COLORS.white,
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  // Setup card: neutral/muted styling so it reads as "prep", not a headline act.
+  // Setup card sits on the dark console — a subtle translucent panel so it reads
+  // as secondary "prep" vs. the crisp white feature cards below.
+  setupCard: {
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 12,
+    border: '1px solid rgba(255,255,255,0.12)',
+    padding: '14px 16px',
+    display: 'flex',
+    flexDirection: 'column',
+  },
+  setupNum: {
+    width: 26,
+    height: 26,
+    borderRadius: '50%',
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    color: 'rgba(255,255,255,0.9)',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontSize: 14,
+    fontWeight: 700,
+    flexShrink: 0,
+  },
+  // Divider that opens the numbered Lakebase acts.
+  storyDivider: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 10,
+    margin: '2px 0',
+  },
+  storyDividerLabel: {
+    fontSize: 11,
+    fontWeight: 700,
+    textTransform: 'uppercase',
+    letterSpacing: '0.06em',
+    color: COLORS.accent,
+    whiteSpace: 'nowrap',
   },
   actFeature: {
     fontSize: 11,
@@ -1591,7 +2081,7 @@ const demoStyles: Record<string, React.CSSProperties> = {
   },
   reminder: {
     display: 'flex',
-    alignItems: 'center',
+    flexDirection: 'column',
     gap: 10,
     marginTop: 8,
     marginBottom: 8,
@@ -1604,12 +2094,12 @@ const demoStyles: Record<string, React.CSSProperties> = {
     lineHeight: 1.4,
   },
   reminderLink: {
-    flexShrink: 0,
-    display: 'inline-flex',
+    display: 'flex',
     alignItems: 'center',
+    justifyContent: 'center',
     gap: 6,
-    padding: '6px 12px',
-    borderRadius: 16,
+    padding: '8px 12px',
+    borderRadius: 8,
     fontSize: 12,
     fontWeight: 700,
     textDecoration: 'none',
@@ -2009,111 +2499,158 @@ function DemoControlTab({
   const canRun = (action: DemoAction) =>
     !action.requires || action.requires.every(isDone);
 
+  // Each act card can be collapsed to just its header. Default: all expanded.
+  // `undefined` = follow the default; an explicit bool = the presenter's choice.
+  const [collapsedActs, setCollapsedActs] = useState<Record<number, boolean | undefined>>({});
+  const toggleAct = (num: number) =>
+    setCollapsedActs(c => ({ ...c, [num]: !isCollapsed(num) }));
+  // Reset clears manual collapse choices so Setup re-expands on a fresh run.
+  useEffect(() => { setCollapsedActs({}); }, [resetSignal]);
+
+  const setupActs = DEMO_ACTS.filter(a => a.setup);
+  const numberedActs = DEMO_ACTS.filter(a => !a.setup);
+  // Setup is "done" once all its steps have run; it then auto-collapses to a
+  // slim "✓ App ready" bar (unless the presenter has manually toggled it).
+  const setupDone = setupActs.every(a => a.actions.every(x => isDone(x.id)));
+  const isCollapsed = (num: number) => {
+    const explicit = collapsedActs[num];
+    if (explicit !== undefined) return explicit;
+    // Setup starts expanded (auto-collapses once done); numbered acts start
+    // collapsed so the panel reads as a tidy list you expand act-by-act.
+    return num === 0 ? setupDone : true;   // num 0 = the Setup block
+  };
+
+  const renderActCard = (act: DemoAct) => {
+    const collapsed = isCollapsed(act.num);
+    const done = act.setup && setupDone;
+    return (
+      <div key={act.num} style={act.setup ? demoStyles.setupCard : demoStyles.actCard}>
+        <button
+          onClick={() => toggleAct(act.num)}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 10, width: '100%',
+            border: 'none', background: 'transparent', padding: 0, cursor: 'pointer', textAlign: 'left',
+          }}
+          title={collapsed ? 'Expand' : 'Collapse'}
+        >
+          <span style={act.setup ? demoStyles.setupNum : demoStyles.actIconBadge}>
+            {act.setup
+              ? (done ? '✓' : '⚙')
+              : (act.icon ? <ActIcon name={act.icon} color={COLORS.white} /> : act.num)}
+          </span>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: act.setup ? 13 : 15, fontWeight: 700, color: act.setup ? 'rgba(255,255,255,0.9)' : COLORS.gray800 }}>
+              {act.setup && done && collapsed ? 'App ready' : act.title}
+            </div>
+            {!(act.setup && done && collapsed) && <div style={demoStyles.actFeature}>{act.feature}</div>}
+          </div>
+          <span style={{
+            fontSize: 12, color: act.setup ? 'rgba(255,255,255,0.55)' : COLORS.gray400, flexShrink: 0,
+            transform: collapsed ? 'rotate(-90deg)' : 'none', transition: 'transform 0.15s ease',
+          }}>
+            ▼
+          </span>
+        </button>
+        {!collapsed && (
+        <div style={{ marginTop: 12 }}>
+          {act.actions.map((action, idx) => {
+            // A reminder shows once its step is done, unless the presenter
+            // dismissed it or a *later* step in this act has since started
+            // (i.e. it's been superseded by the next action).
+            const laterStarted = act.actions
+              .slice(idx + 1)
+              .some(a => statuses[a.id] === 'running' || statuses[a.id] === 'done');
+            const showReminder =
+              action.reminder &&
+              statuses[action.id] === 'done' &&
+              !dismissed[action.id] &&
+              !laterStarted;
+            return (
+              <React.Fragment key={action.id}>
+                <ActionButton
+                  action={action}
+                  status={statuses[action.id] || 'idle'}
+                  disabled={!canRun(action)}
+                  onRun={() => onRunAction(act, action)}
+                  config={config}
+                />
+                {showReminder && action.reminder && (
+                  <div style={demoStyles.reminder}>
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                      <span style={{ fontSize: 16, lineHeight: 1.3 }}>👉</span>
+                      <span style={{ flex: 1 }}>{action.reminder.text}</span>
+                      <button
+                        onClick={() => onDismiss(action.id)}
+                        title="Dismiss"
+                        style={{
+                          flexShrink: 0, border: 'none', background: 'transparent', cursor: 'pointer',
+                          fontSize: 16, lineHeight: 1, color: COLORS.gray500, padding: '0 2px',
+                        }}
+                      >
+                        ×
+                      </button>
+                    </div>
+                    {action.reminder.linkTarget && (
+                      <a href={linkFor(action.reminder.linkTarget, config)} target="_blank" rel="noreferrer" style={demoStyles.reminderLink}>
+                        {action.reminder.linkLabel} ↗
+                      </a>
+                    )}
+                  </div>
+                )}
+              </React.Fragment>
+            );
+          })}
+          {act.watchTarget && (
+            <a href={linkFor(act.watchTarget, config)} target="_blank" rel="noreferrer" style={demoStyles.watchChip}>
+              🔗 {act.watchLabel}
+            </a>
+          )}
+          {act.loadTest && <LoadTestPanel onLog={onLog} resetSignal={resetSignal} />}
+        </div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <>
-      <div style={{
-        display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20,
-        padding: '14px 20px', borderRadius: 12, backgroundColor: COLORS.primary, color: COLORS.white,
-      }}>
-        <div>
-          <div style={{ fontSize: 17, fontWeight: 700 }}>Demo Control</div>
-          <div style={{ fontSize: 13, opacity: 0.85 }}>
-            Run the demo act-by-act. Each button performs one step — the app tabs light up as you go.
-          </div>
-        </div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
         <button
           onClick={onReset}
           disabled={resetting}
           style={{
-            marginLeft: 'auto', padding: '8px 14px', borderRadius: 16, fontSize: 12, fontWeight: 600,
-            cursor: resetting ? 'not-allowed' : 'pointer', border: `1px solid rgba(255,255,255,0.4)`,
-            backgroundColor: 'transparent', color: COLORS.white, opacity: resetting ? 0.6 : 1,
+            padding: '8px 14px', borderRadius: 16, fontSize: 12, fontWeight: 600,
+            cursor: resetting ? 'not-allowed' : 'pointer', border: '1px solid rgba(255,255,255,0.25)',
+            backgroundColor: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.85)', opacity: resetting ? 0.6 : 1,
           }}
           title="Drop the sales schema and reset the demo to a clean slate"
         >
           {resetting ? 'Resetting…' : '↺ Reset demo'}
         </button>
         <a href={config.lakebase_project_url} target="_blank" rel="noreferrer"
-          style={{ ...demoStyles.watchChip, marginTop: 0, backgroundColor: COLORS.white }}>
+          style={{
+            display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600,
+            color: 'rgba(255,255,255,0.85)', textDecoration: 'none', padding: '8px 12px', borderRadius: 16,
+            backgroundColor: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.25)',
+          }}>
           Open Lakebase UI ↗
         </a>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 2fr) minmax(300px, 1fr)', gap: 20, alignItems: 'start' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        {/* Setup — app/Postgres bootstrapping, not a Lakebase feature. */}
         <div style={demoStyles.actGrid}>
-          {DEMO_ACTS.map(act => (
-            <div key={act.num} style={demoStyles.actCard}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
-                <span style={demoStyles.actNum}>{act.num}</span>
-                <div>
-                  <div style={{ fontSize: 15, fontWeight: 700, color: COLORS.gray800 }}>{act.title}</div>
-                  <div style={demoStyles.actFeature}>{act.feature}</div>
-                </div>
-              </div>
-              <div style={{ marginTop: 12 }}>
-                {act.actions.map((action, idx) => {
-                  // A reminder shows once its step is done, unless the presenter
-                  // dismissed it or a *later* step in this act has since started
-                  // (i.e. it's been superseded by the next action).
-                  const laterStarted = act.actions
-                    .slice(idx + 1)
-                    .some(a => statuses[a.id] === 'running' || statuses[a.id] === 'done');
-                  const showReminder =
-                    action.reminder &&
-                    statuses[action.id] === 'done' &&
-                    !dismissed[action.id] &&
-                    !laterStarted;
-                  return (
-                    <React.Fragment key={action.id}>
-                      <ActionButton
-                        action={action}
-                        status={statuses[action.id] || 'idle'}
-                        disabled={!canRun(action)}
-                        onRun={() => onRunAction(act, action)}
-                        config={config}
-                      />
-                      {showReminder && action.reminder && (
-                        <div style={demoStyles.reminder}>
-                          <span style={{ fontSize: 16 }}>👉</span>
-                          <span style={{ flex: 1 }}>{action.reminder.text}</span>
-                          {action.reminder.linkTarget && (
-                            <a href={linkFor(action.reminder.linkTarget, config)} target="_blank" rel="noreferrer" style={demoStyles.reminderLink}>
-                              {action.reminder.linkLabel} ↗
-                            </a>
-                          )}
-                          <button
-                            onClick={() => onDismiss(action.id)}
-                            title="Dismiss"
-                            style={{
-                              flexShrink: 0, border: 'none', background: 'transparent', cursor: 'pointer',
-                              fontSize: 16, lineHeight: 1, color: COLORS.gray500, padding: '0 2px',
-                            }}
-                          >
-                            ×
-                          </button>
-                        </div>
-                      )}
-                    </React.Fragment>
-                  );
-                })}
-                {act.watchTarget && (
-                  <a href={linkFor(act.watchTarget, config)} target="_blank" rel="noreferrer" style={demoStyles.watchChip}>
-                    🔗 {act.watchLabel}
-                  </a>
-                )}
-                {act.loadTest && <LoadTestPanel onLog={onLog} resetSignal={resetSignal} />}
-              </div>
-            </div>
-          ))}
+          {setupActs.map(renderActCard)}
         </div>
 
-        <div style={{ ...styles.card, position: 'sticky', top: 88 }}>
-          <div style={styles.cardTitle}>Activity Log</div>
-          <div style={demoStyles.logPanel}>
-            {log.length === 0
-              ? <span style={{ opacity: 0.5 }}>Waiting for the first step… click a button to begin.</span>
-              : log.map((line, i) => <div key={i}>{line}</div>)}
-          </div>
+        {/* Divider into the Lakebase story. */}
+        <div style={demoStyles.storyDivider}>
+          <span style={demoStyles.storyDividerLabel}>Lakebase Features</span>
+          <span style={{ flex: 1, height: 1, backgroundColor: 'rgba(255,255,255,0.15)' }} />
+        </div>
+
+        <div style={demoStyles.actGrid}>
+          {numberedActs.map(renderActCard)}
         </div>
       </div>
     </>
@@ -2125,7 +2662,10 @@ function DemoControlTab({
 /* ------------------------------------------------------------------ */
 
 export default function App() {
-  const [tab, setTab] = useState<Tab>('demo');
+  const [tab, setTab] = useState<Tab>('accounts');
+  // Demo Control now lives in a fixed right-side panel (the "remote control").
+  // The presenter can collapse it to give the app a full-screen view.
+  const [panelCollapsed, setPanelCollapsed] = useState(false);
   const [features, setFeatures] = useState<Features>({
     accounts_available: false,
     opportunities_available: false,
@@ -2311,7 +2851,7 @@ export default function App() {
         setDismissedReminders({});
         setFeatures(OFF_FEATURES);
         setResetSignal(s => s + 1);   // tell the Act 5 dashboard to clear
-        setTab('demo');
+        setTab('accounts');
         setResetting(false);
       });
   }, [resetting]);
@@ -2332,75 +2872,110 @@ export default function App() {
         body { margin: 0; }
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
         table tr:hover { filter: brightness(0.98); }
+        @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+        @keyframes churnPopulate { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
       `}</style>
 
-      <header style={styles.header}>
-        <div style={styles.headerTitle}>
-          <PipelineLogo />
-          <span>Sales Pipeline Portal</span>
-          <span style={styles.headerSubtitle}>Accounts &amp; Pipeline | Powered by Lakebase</span>
-        </div>
-        <div style={{ fontSize: 12, opacity: 0.7 }}>
-          {featuresLoaded ? 'Connected' : 'Connecting...'}
-        </div>
-      </header>
+      <div style={styles.body}>
+        {/* Left column: the app itself (header, nav, content, footer) — kept
+            fully separate from the Demo Control console on the right. */}
+        <div style={styles.appColumn}>
+          <header style={styles.header}>
+            <div style={styles.headerTitle}>
+              <PipelineLogo />
+              <span>Sales Pipeline Portal</span>
+              <span style={styles.headerSubtitle}>Accounts &amp; Pipeline | Powered by Lakebase</span>
+            </div>
+            <div style={{ fontSize: 12, opacity: 0.7 }}>
+              {featuresLoaded ? 'Connected' : 'Connecting...'}
+            </div>
+          </header>
 
-      {demoMode && (
-        <div style={styles.demoBanner}>
-          <span>Preview mode — showing sample data (backend/Lakebase not connected). Drive the demo from the Demo Control tab.</span>
-        </div>
-      )}
+          {demoMode && (
+            <div style={styles.demoBanner}>
+              <span>Preview mode — showing sample data (backend/Lakebase not connected). Drive the demo from the Demo Control panel.</span>
+            </div>
+          )}
 
-      <nav style={styles.nav}>
-        {([
-          { key: 'demo' as Tab, label: 'Demo Control', available: true },
-          { key: 'accounts' as Tab, label: 'Accounts', available: features.accounts_available },
-          { key: 'opportunities' as Tab, label: 'Opportunities', available: features.opportunities_available },
-          { key: 'churn' as Tab, label: 'Retention Risk', available: features.churn_active },
-        ]).map(t => (
-          <button
-            key={t.key}
-            onClick={() => setTab(t.key)}
-            style={{
-              ...styles.navTab,
-              ...(tab === t.key ? styles.navTabActive : {}),
-              ...(!t.available && tab !== t.key ? { opacity: 0.6 } : {}),
-            }}
-          >
-            {t.label}
-            {!t.available && (
-              <span style={{
-                display: 'inline-block', width: 6, height: 6, borderRadius: '50%',
-                backgroundColor: COLORS.warning, marginLeft: 8, verticalAlign: 'middle',
-              }} />
+          <nav style={styles.nav}>
+            {([
+              { key: 'accounts' as Tab, label: 'Accounts', available: features.accounts_available },
+              { key: 'opportunities' as Tab, label: 'Opportunities', available: features.opportunities_available },
+              { key: 'churn' as Tab, label: 'Retention Risk', available: features.churn_active },
+            ]).map(t => (
+              <button
+                key={t.key}
+                onClick={() => setTab(t.key)}
+                style={{
+                  ...styles.navTab,
+                  ...(tab === t.key ? styles.navTabActive : {}),
+                  ...(!t.available && tab !== t.key ? { opacity: 0.6 } : {}),
+                }}
+              >
+                {t.label}
+                {!t.available && (
+                  <span style={{
+                    display: 'inline-block', width: 6, height: 6, borderRadius: '50%',
+                    backgroundColor: COLORS.warning, marginLeft: 8, verticalAlign: 'middle',
+                  }} />
+                )}
+              </button>
+            ))}
+          </nav>
+
+          <main style={styles.main}>
+            {!featuresLoaded ? (
+              <LoadingSpinner />
+            ) : (
+              <>
+                {tab === 'accounts' && <AccountsTab features={features} onMock={() => setDemoMode(true)} />}
+                {tab === 'opportunities' && <OpportunitiesTab features={features} onMock={() => setDemoMode(true)} />}
+                {tab === 'churn' && <RetentionRiskTab features={features} onMock={() => setDemoMode(true)} />}
+              </>
             )}
+          </main>
+
+          <footer style={styles.statusBar}>
+            <span style={{ fontWeight: 600, color: COLORS.gray700 }}>Service Status:</span>
+            {featureLabels.map(f => (
+              <span key={f.key} style={{ display: 'flex', alignItems: 'center' }}>
+                <span style={{ ...styles.statusDot, backgroundColor: features[f.key] ? COLORS.success : COLORS.danger }} />
+                {f.label}
+              </span>
+            ))}
+            <span style={{ marginLeft: 'auto', color: COLORS.gray400 }}>Auto-refresh: 30s</span>
+          </footer>
+        </div>
+
+        {/* Right column: the Demo Control console — full height, its own surface. */}
+        {panelCollapsed ? (
+          <button
+            onClick={() => setPanelCollapsed(false)}
+            style={styles.panelReopen}
+            title="Show Demo Control"
+          >
+            ◀ Demo Control
           </button>
-        ))}
-      </nav>
-
-      <main style={styles.main}>
-        {!featuresLoaded ? (
-          <LoadingSpinner />
         ) : (
-          <>
-            {tab === 'demo' && <DemoControlTab statuses={stepStatus} onRunAction={runAction} onReset={resetDemo} resetting={resetting} log={demoLog} config={demoConfig} dismissed={dismissedReminders} onDismiss={(id) => setDismissedReminders(d => ({ ...d, [id]: true }))} onLog={(line) => { setDemoDriven(true); setDemoLog(l => [...l, line]); }} resetSignal={resetSignal} />}
-            {tab === 'accounts' && <AccountsTab features={features} onMock={() => setDemoMode(true)} />}
-            {tab === 'opportunities' && <OpportunitiesTab features={features} onMock={() => setDemoMode(true)} />}
-            {tab === 'churn' && <RetentionRiskTab features={features} onMock={() => setDemoMode(true)} />}
-          </>
+          <aside style={styles.panel}>
+            <div style={styles.panelHeaderBar}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'rgba(255,255,255,0.92)' }}>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: COLORS.success, boxShadow: `0 0 6px ${COLORS.success}` }} />
+                Demo Control
+                <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.04em', color: 'rgba(255,255,255,0.45)', textTransform: 'none' }}>presenter</span>
+              </span>
+              <button
+                onClick={() => setPanelCollapsed(true)}
+                style={styles.panelCollapseBtn}
+                title="Hide the panel for a full-screen app view"
+              >
+                Hide ▶
+              </button>
+            </div>
+            <DemoControlTab statuses={stepStatus} onRunAction={runAction} onReset={resetDemo} resetting={resetting} log={demoLog} config={demoConfig} dismissed={dismissedReminders} onDismiss={(id) => setDismissedReminders(d => ({ ...d, [id]: true }))} onLog={(line) => { setDemoDriven(true); setDemoLog(l => [...l, line]); }} resetSignal={resetSignal} />
+          </aside>
         )}
-      </main>
-
-      <footer style={styles.statusBar}>
-        <span style={{ fontWeight: 600, color: COLORS.gray700 }}>Service Status:</span>
-        {featureLabels.map(f => (
-          <span key={f.key} style={{ display: 'flex', alignItems: 'center' }}>
-            <span style={{ ...styles.statusDot, backgroundColor: features[f.key] ? COLORS.success : COLORS.danger }} />
-            {f.label}
-          </span>
-        ))}
-        <span style={{ marginLeft: 'auto', color: COLORS.gray400 }}>Auto-refresh: 30s</span>
-      </footer>
+      </div>
 
       {codeModal && (
         <CodeRunnerModal
