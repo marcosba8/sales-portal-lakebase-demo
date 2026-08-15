@@ -276,6 +276,24 @@ databricks apps update "$APP_NAME" --json "{
   || echo -e "  ${YELLOW}!${NC} Could not bind app resources (bind manually if acts fail)"
 echo ""
 
+# Grant the app SP the ability to land Lakebase CDF history tables
+# (lb_<table>_history) into the gold schema. Act 4's Change Data Feed writes
+# these Delta tables into GOLD_CATALOG.GOLD_SCHEMA, but that schema is owned by
+# DEMO_SCHEMA_OWNER (a stable human, so it survives SP rotation) — so the SP has
+# no CREATE there by default. This grant runs as the deploying user (the schema
+# owner), the only identity that can grant it. Best-effort: the schema must
+# already exist (Act 4 'Publish' creates it; on a fresh workspace run Publish
+# once, then re-deploy, or grant manually).
+if [ -n "$SP_CLIENT_ID" ]; then
+  databricks grants update catalog "$GOLD_CATALOG" \
+    --json "{\"changes\":[{\"principal\":\"${SP_CLIENT_ID}\",\"add\":[\"USE_CATALOG\"]}]}" $CLI_ARGS >/dev/null 2>&1 || true
+  databricks grants update schema "${GOLD_CATALOG}.${GOLD_SCHEMA}" \
+    --json "{\"changes\":[{\"principal\":\"${SP_CLIENT_ID}\",\"add\":[\"USE_SCHEMA\",\"CREATE_TABLE\"]}]}" $CLI_ARGS >/dev/null 2>&1 \
+    && echo -e "  ${GREEN}✓${NC} App SP granted CREATE on ${GOLD_CATALOG}.${GOLD_SCHEMA} (CDF history tables)" \
+    || echo -e "  ${YELLOW}!${NC} Could not grant SP CREATE on ${GOLD_SCHEMA} (run Act 4 'Publish' first, then re-deploy, or grant manually)"
+  echo ""
+fi
+
 # ── Step 5: Upload & deploy ──────────────────────────────────────────────────
 echo -e "${YELLOW}[5/5] Deploying...${NC}"
 databricks workspace import-dir "$STAGING_DIR" "$WORKSPACE_PATH" --overwrite $CLI_ARGS 2>&1 | tail -3

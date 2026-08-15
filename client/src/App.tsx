@@ -985,7 +985,7 @@ function AddOpportunityModal({ onClose, onAdded }: {
     border: `1px solid ${COLORS.gray300}`, backgroundColor: COLORS.white, color: COLORS.gray800,
     boxSizing: 'border-box',
   };
-  const label: React.CSSProperties = { fontSize: 12, fontWeight: 600, color: COLORS.gray600, marginBottom: 5, display: 'block' };
+  const label: React.CSSProperties = { fontSize: 12, fontWeight: 600, color: COLORS.gray500, marginBottom: 5, display: 'block' };
 
   return (
     <div
@@ -1646,7 +1646,7 @@ const DEMO_ACTS: DemoAct[] = [
         log: [
           'Populating realistic B2B data…',
           '  accounts: 30 rows',
-          '  opportunities: 100 rows',
+          '  opportunities: 50 rows',
           '  sales_activities: 81 rows',
           'App cache refreshed. Accounts & Opportunities show live data.',
         ],
@@ -1776,7 +1776,7 @@ VALUES
           '-- 🆘  S.O.S.  the whole sales org just lost its deals',
         ],
         log: [
-          'Recovery point recorded — 100 deals safe.',
+          'Recovery point recorded — 50 deals safe.',
           'DISASTER: DROP TABLE sales.opportunities CASCADE',
           'The entire pipeline is gone.',
           'App Opportunities tab → "Pipeline Temporarily Unavailable".',
@@ -1797,10 +1797,10 @@ VALUES
         log: [
           'Rewinding to the pre-disaster moment on an isolated branch…',
           'Recovery branch created from the pre-disaster moment.',
-          'Opportunities on the recovery branch: 100 — the data is safe!',
+          'Opportunities on the recovery branch: 50 — the data is safe!',
         ],
         reminder: {
-          text: 'The 100 deals are intact on the recovery branch — nothing was lost. Now restore them to production.',
+          text: 'The 50 deals are intact on the recovery branch — nothing was lost. Now restore them to production.',
         },
       },
       {
@@ -1813,7 +1813,7 @@ VALUES
         endpoint: '/api/demo/act3/restore',
         log: [
           'Copying recovered rows back to production…',
-          'Restored 100 opportunities to production!',
+          'Restored 50 opportunities to production!',
           "Recovery branch 'pitr-recovery' deleted.",
           'Full recovery, zero data loss. Opportunities page is back.',
         ],
@@ -1869,11 +1869,11 @@ VALUES
     ],
   },
   {
-    // PLACEHOLDER — UI only, backend not yet wired. These steps have no
-    // `endpoint`, so runAction falls back to the built-in simulated log stream.
-    // Feature ref: https://docs.databricks.com/aws/en/oltp/projects/lakebase-cdf
     // CDF is the mirror of Synced Tables: app → lakehouse (every insert/update/
     // delete on a Lakebase Postgres table is captured to Delta in Unity Catalog).
+    // Feature ref: https://docs.databricks.com/aws/en/oltp/projects/lakebase-cdf
+    // Step 1 is wired to a real backend endpoint; step 2 is a manual reminder
+    // (the presenter adds an opportunity, then checks the lakehouse tables).
     num: 4,
     icon: 'syncOut',
     title: 'Change Data Feed — Lakebase to Lakehouse',
@@ -1887,48 +1887,31 @@ VALUES
         doneLabel: 'CDF enabled ✓',
         durationMs: 2400,
         requires: ['act1_seed'],
+        endpoint: '/api/demo/act4/cdf-enable',
         log: [
-          '(placeholder — backend not wired yet)',
+          'Setting REPLICA IDENTITY FULL on the sales tables…',
           'Enabling Change Data Feed on schema sales…',
-          'All current & future tables now captured to Delta.',
+          'Every table now writes its change history to Delta (lb_<table>_history).',
           'Changes batch to Unity Catalog every ~15s from the WAL.',
         ],
         reminder: {
-          text: 'CDF is enabled at the schema level — every table is now streaming its inserts/updates/deletes to the lakehouse.',
+          text: 'CDF is enabled at the schema level — every table now streams its inserts/updates/deletes to Delta tables in Unity Catalog. Next: add an opportunity in the app.',
         },
       },
       {
         id: 'act_cdf_change',
-        label: '2. Make a change in the app (new opportunity)',
-        runningLabel: 'Writing to Lakebase…',
-        doneLabel: 'Change captured ✓',
-        durationMs: 2400,
+        label: '2. Add a manual opportunity',
+        runningLabel: '',
+        doneLabel: 'Done — check the lakehouse',
+        durationMs: 1200,
         requires: ['act_cdf_enable'],
         log: [
-          '(placeholder — backend not wired yet)',
-          'Rep creates a new opportunity in the app…',
-          'INSERT committed to sales.opportunities.',
-          'Change picked up from the WAL → queued for the change feed.',
+          'Open the Opportunities tab and add a new opportunity.',
+          'That INSERT commits to sales.opportunities in Lakebase.',
+          'CDF captures it from the WAL → lands in the lakehouse in ~15s.',
         ],
         reminder: {
-          text: 'A normal app write — the presenter can create/edit an opportunity in the Opportunities tab to make this real.',
-        },
-      },
-      {
-        id: 'act_cdf_query',
-        label: '3. Query the change feed in the lakehouse',
-        runningLabel: 'Querying Delta change feed…',
-        doneLabel: 'Change visible in Delta ✓',
-        durationMs: 2400,
-        requires: ['act_cdf_change'],
-        log: [
-          '(placeholder — backend not wired yet)',
-          'Reading the CDF Delta table in Unity Catalog…',
-          'Found the INSERT: _change_type=insert, LSN, txid, commit_ts.',
-          'The app write is now queryable in the lakehouse — zero ETL glue.',
-        ],
-        reminder: {
-          text: 'The opportunity created in the app is now a row in the CDF Delta table — bidirectional: lakehouse→app (sync) and app→lakehouse (CDF).',
+          text: 'Now open the Lakehouse tables in Unity Catalog (for_startups_demos_catalog.data_science_ml) and check lb_opportunities_history — the opportunity you just added shows up as a change row (_pg_change_type = insert). CDF flushes every ~15s, so give it a moment. Bidirectional loop: lakehouse→app (synced tables) and app→lakehouse (CDF).',
         },
       },
     ],
@@ -1938,18 +1921,11 @@ VALUES
     icon: 'surge',
     title: 'End-of-Quarter Load Test & Autoscaling',
     feature: 'Observability · Autoscaling',
-    say: '“It’s the last day of the quarter. First 250 reps pile into the portal — then a second wave doubles it to 500 concurrent connections hammering the database. Open the Lakebase Monitoring graph, launch the surge, and watch compute scale up to absorb it with no config change and no downtime — then scale back to zero when the rush is over.”',
+    say: '“It’s the last day of the quarter. First 300 reps pile into the portal — then a second wave doubles it to 600 concurrent connections hammering the database. Open the Lakebase Monitoring graph, launch the surge, and watch compute scale up to absorb it with no config change and no downtime — then scale back to zero when the rush is over.”',
     loadTest: true,
-    actions: [
-      {
-        id: 'act5_monitoring',
-        label: 'Open Lakebase Monitoring ↗',
-        runningLabel: '',
-        doneLabel: 'Opened Monitoring',
-        hrefTarget: 'project',
-        log: [],
-      },
-    ],
+    // No step buttons: the LoadTestPanel renders its own Monitoring callout +
+    // surge controls (the real Monitoring graph is the star of this act).
+    actions: [],
   },
 ];
 
@@ -2292,7 +2268,7 @@ interface LoadProgress {
   step_at?: number;
 }
 
-function LoadTestPanel({ onLog, resetSignal }: { onLog: (line: string) => void; resetSignal: number }) {
+function LoadTestPanel({ onLog, resetSignal, config }: { onLog: (line: string) => void; resetSignal: number; config: DemoConfig }) {
   const [p, setP] = useState<LoadProgress | null>(null);
   const [busy, setBusy] = useState(false);
   const [preview, setPreview] = useState(false);
@@ -2364,7 +2340,7 @@ function LoadTestPanel({ onLog, resetSignal }: { onLog: (line: string) => void; 
     if (busy) return;
     setBusy(true);
     onLog('\n$ End-of-quarter load test');
-    fetch('/api/demo/act5/start?num_workers=500&duration_s=90&ramp_s=15&step_at=30', { method: 'POST' })
+    fetch('/api/demo/act5/start?num_workers=600&duration_s=150&ramp_s=15&step_at=30', { method: 'POST' })
       .then(r => { if (!r.ok) throw new Error(`${r.status}`); return r.json(); })
       .then((d) => {
         (d.log || []).forEach((l: string) => onLog(`  ${l}`));
@@ -2381,16 +2357,6 @@ function LoadTestPanel({ onLog, resetSignal }: { onLog: (line: string) => void; 
     onLog('  Load test stopped — compute scales back down when idle.');
   };
 
-  // Track the highest vCPU seen this run (so the gauge never appears to drop).
-  const peakVcpu = Math.max(
-    1,
-    Number(p?.vcpus ?? 1),
-    ...((p?.timeline || []).map(x => Number(x.vcpus ?? 1))),
-  );
-  const peakVcpuPct = Math.max(4, Math.min(100, (peakVcpu / 12) * 100));
-  const connPct = p ? Math.max(2, Math.min(100, (p.active_connections / 500) * 100)) : 0;
-  const maxQps = Math.max(1, ...(p?.timeline || []).map(x => x.qps));
-
   const tile = (label: string, value: string, color: string) => (
     <div style={{ flex: 1, backgroundColor: COLORS.white, borderRadius: 10, padding: '12px 14px', border: `1px solid ${COLORS.gray200}`, borderLeft: `4px solid ${color}` }}>
       <div style={{ fontSize: 22, fontWeight: 700, color }}>{value}</div>
@@ -2398,8 +2364,26 @@ function LoadTestPanel({ onLog, resetSignal }: { onLog: (line: string) => void; 
     </div>
   );
 
+  const monitoringUrl = linkFor('project', config);
+
   return (
     <div style={{ marginTop: 8 }}>
+      {/* The real Lakebase Monitoring graph is the star of this act — open it
+         first, then drive the surge and watch compute autoscale live there. */}
+      <a href={monitoringUrl} target="_blank" rel="noreferrer" style={{
+        display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none',
+        backgroundColor: COLORS.primary, border: `1px solid ${COLORS.primaryDark}`,
+        borderRadius: 10, padding: '11px 13px', marginBottom: 12,
+      }}>
+        <span style={{ ...demoStyles.actIconBadge, width: 28, height: 28 }}>
+          <ActIcon name="surge" color={COLORS.white} />
+        </span>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: COLORS.white }}>Open Lakebase Monitoring ↗</div>
+          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.7)' }}>See the live compute graph as the surge hits</div>
+        </div>
+      </a>
+
       <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
         <button
           onClick={start} disabled={busy}
@@ -2422,59 +2406,29 @@ function LoadTestPanel({ onLog, resetSignal }: { onLog: (line: string) => void; 
         <>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
             <span style={{ fontSize: 12, fontWeight: 700, color: COLORS.gray700 }}>
-              Live load dashboard {p.running ? '· running' : '· finished'}
+              Live load generator {p.running ? `· ${p.elapsed.toFixed(0)}s` : '· finished'}
+              {p.stepped && p.running ? ' · ⚡ second wave' : ''}
             </span>
             <button
               onClick={clearDashboard}
-              title={busy ? 'Stop the test and close the dashboard' : 'Close the dashboard'}
+              title={busy ? 'Stop the test and close' : 'Close'}
               style={{ border: 'none', background: 'transparent', cursor: 'pointer',
-                fontSize: 12, fontWeight: 600, color: COLORS.gray500, padding: '2px 6px' }}>
+                fontSize: 12, fontWeight: 600, color: COLORS.gray400, padding: '2px 6px' }}>
               {busy ? 'Stop & close ✕' : 'Close ✕'}
             </button>
           </div>
-          <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+          {/* Just the genuinely-live numbers the app is generating — the shape of
+             the load. The autoscaling response itself is shown in Monitoring. */}
+          <div style={{ display: 'flex', gap: 8 }}>
             {tile('Active connections', String(p.active_connections), COLORS.primary)}
             {tile('Queries / sec', Math.round(p.qps).toLocaleString(), '#2272B4')}
-            {tile('Total queries', p.total_queries.toLocaleString(), COLORS.success)}
             {tile('Errors', String(p.errors), p.errors > 0 ? COLORS.danger : COLORS.gray400)}
           </div>
-
-          {/* Compute gauge — tracks the peak vCPU seen so it never appears to
-             drop back mid-demo. The Monitoring UI is the authoritative graph. */}
-          <div style={{ backgroundColor: COLORS.white, borderRadius: 10, padding: 14, border: `1px solid ${COLORS.gray200}`, marginBottom: 10 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, fontWeight: 600, color: COLORS.gray700, marginBottom: 6 }}>
-              <span>Compute</span>
-              <span style={{ color: peakVcpu > 1 ? COLORS.accent : COLORS.gray500 }}>
-                {peakVcpu > 1 ? `↑ scaled to ${peakVcpu} vCPU under load` : `${peakVcpu} vCPU`}
-              </span>
-            </div>
-            <div style={{ height: 14, backgroundColor: COLORS.gray100, borderRadius: 7, overflow: 'hidden' }}>
-              <div style={{ height: '100%', width: `${peakVcpuPct}%`, backgroundColor: COLORS.accent, transition: 'width 0.6s ease', borderRadius: 7 }} />
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: COLORS.gray400, marginTop: 3 }}>
-              <span>0.5 CU idle</span><span>autoscales to 12 CU · see Monitoring for the live graph</span>
-            </div>
+          <div style={{ fontSize: 11, color: preview ? COLORS.warning : COLORS.gray500, marginTop: 8 }}>
+            {preview
+              ? 'Preview mode — simulated metrics (backend not connected).'
+              : 'This is the load the app is driving into Lakebase → watch the Monitoring graph for the autoscaling response.'}
           </div>
-
-          {/* Connections bar + tiny qps sparkline (step highlighted) */}
-          <div style={{ backgroundColor: COLORS.white, borderRadius: 10, padding: 14, border: `1px solid ${COLORS.gray200}` }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, fontWeight: 600, color: COLORS.gray700, marginBottom: 6 }}>
-              <span>Connection load · {p.elapsed.toFixed(0)}s {p.running ? '· live' : ''}</span>
-              <span style={{ color: p.stepped ? COLORS.accent : COLORS.gray500 }}>
-                {p.stepped ? '⚡ second wave — surge' : `first wave · step at ${p.step_at ?? 30}s`}
-              </span>
-            </div>
-            <div style={{ height: 10, backgroundColor: COLORS.gray100, borderRadius: 5, overflow: 'hidden', marginBottom: 10 }}>
-              <div style={{ height: '100%', width: `${connPct}%`, backgroundColor: p.stepped ? COLORS.accent : COLORS.primary, transition: 'width 0.6s ease', borderRadius: 5 }} />
-            </div>
-            <div style={{ display: 'flex', alignItems: 'flex-end', gap: 2, height: 42 }}>
-              {(p.timeline || []).map((x, i) => (
-                <div key={i} title={`${x.qps} q/s`} style={{ flex: 1, height: `${Math.max(4, (x.qps / maxQps) * 100)}%`, backgroundColor: x.step ? COLORS.accent : '#2272B4', borderRadius: 2, opacity: 0.85 }} />
-              ))}
-            </div>
-            <div style={{ fontSize: 10, color: COLORS.gray400, marginTop: 4 }}>queries/sec over time · orange = post-step surge · peak {p.peak_connections} connections</div>
-          </div>
-          {preview && <div style={{ fontSize: 11, color: COLORS.warning, marginTop: 8 }}>Preview mode — simulated metrics (backend not connected).</div>}
         </>
       )}
     </div>
@@ -2605,7 +2559,7 @@ function DemoControlTab({
               🔗 {act.watchLabel}
             </a>
           )}
-          {act.loadTest && <LoadTestPanel onLog={onLog} resetSignal={resetSignal} />}
+          {act.loadTest && <LoadTestPanel onLog={onLog} resetSignal={resetSignal} config={config} />}
         </div>
         )}
       </div>

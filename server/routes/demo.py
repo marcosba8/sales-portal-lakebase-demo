@@ -6,7 +6,7 @@ endpoint. The app's service principal executes the SQL directly against Lakebase
 
 Act 1: Setup & Seed Data
   Creates the `sales` schema + 3 tables and seeds realistic B2B data
-  (30 accounts, ~100 opportunities, ~81 sales activities). Idempotent: if the
+  (30 accounts, 50 opportunities, ~81 sales activities). Idempotent: if the
   data is already present it reports the existing row counts instead of
   re-seeding.
 
@@ -156,7 +156,7 @@ SELECT a.id,
        (ARRAY[10,25,50,75,100,0])[r.si],
        (ARRAY['Platform','Data Warehouse','ML/AI','Governance','Streaming'])[FLOOR(RANDOM()*5+1)]
 FROM sales.accounts a
-CROSS JOIN generate_series(1,4) AS s(n)
+CROSS JOIN generate_series(1,2) AS s(n)
 CROSS JOIN LATERAL (SELECT FLOOR(RANDOM()*6+1)::INT AS si) r
 WHERE a.id <= 25
 """
@@ -236,6 +236,24 @@ def reset_demo():
                 log.append("Dropped gold Delta table.")
             except Exception:
                 pass
+            # CDF: delete the config first (stops streaming so nothing re-creates
+            # the history tables mid-cleanup), THEN drop the lb_*_history Delta
+            # tables it produced. Dropping them matters for re-runs: CDF
+            # auto-suffixes on name collisions (lb_opportunities_history_1), which
+            # would break the query step that targets the exact name. Discover
+            # them dynamically so any suffixed leftovers get swept up too.
+            try:
+                if _cdf_config_exists(w):
+                    w.postgres.delete_cdf_config(name=_cdf_config_name(), force=True)
+                    log.append("Deleted Change Data Feed config (streaming stopped).")
+            except Exception as ce:
+                log.append(f"(CDF config cleanup deferred: {ce})")
+            try:
+                dropped = _drop_cdf_history_tables()
+                if dropped:
+                    log.append(f"Dropped {len(dropped)} CDF history table(s): {', '.join(dropped)}.")
+            except Exception as he:
+                log.append(f"(CDF history-table cleanup deferred: {he})")
         except Exception as be:
             log.append(f"(Act 4 cleanup skipped: {be})")
 
@@ -848,6 +866,29 @@ SYNCED_UC_SCHEMA = GOLD_SCHEMA
 SYNCED_TABLE = f"{SYNCED_UC_SCHEMA}.churn_predictions"   # landing in Lakebase Postgres
 SYNCED_TABLE_ID = f"{GOLD_CATALOG}.{SYNCED_UC_SCHEMA}.churn_predictions"
 
+# ── Act 4 (second half): Lakebase Change Data Feed (CDF) ─────────────────────
+# CDF is the mirror of synced tables: it captures every insert/update/delete on
+# the Lakebase Postgres `sales` schema from the write-ahead log and materializes
+# each table as an open-format Delta table (`lb_<table>_history`) in Unity
+# Catalog — no external CDC infrastructure. Ref:
+#   https://docs.databricks.com/aws/en/oltp/projects/lakebase-cdf
+# The CDF config is schema-level (one config → every table in the schema). It
+# writes the history tables into GOLD_CATALOG.CDF_UC_SCHEMA. We reuse the gold
+# data-science schema (data_science_ml), so the app SP needs CREATE on it — the
+# deploy grants that (data_science_ml is owned by DEMO_SCHEMA_OWNER, so the SP
+# can't create the schema itself, only land tables into it).
+CDF_SOURCE_SCHEMA = "sales"          # Postgres schema whose changes we capture
+CDF_UC_SCHEMA = GOLD_SCHEMA          # UC schema the lb_*_history tables land in
+CDF_CONFIG_ID = "sales_cdf"          # stable id → resource name segment
+                                     # (must match [a-z][a-z0-9_]{0,62} — no hyphens)
+# The DATABASE RESOURCE id uses a HYPHEN (databricks-postgres) even though the
+# actual Postgres database name has an underscore (databricks_postgres). The CDF
+# config's parent path needs the hyphenated *resource* id, matching the app's
+# postgres resource binding in deploy-v2.sh.
+CDF_DATABASE = "databricks-postgres"
+# The history table that proves the loop: opportunities is what a rep edits.
+CDF_HISTORY_TABLE = f"{GOLD_CATALOG}.{CDF_UC_SCHEMA}.lb_opportunities_history"
+
 _GOLD_SEED = f"""
 INSERT INTO {GOLD_TABLE} VALUES
  (1 ,'Northwind Systems'  ,'Growth'    ,0.950,'High'  ,192000,'Competitor evaluation'   ,'Escalate to renewals team'          ,'v2.3',current_timestamp()),
@@ -1066,6 +1107,199 @@ def _sp_client_id(w):
     return w.current_user.me().user_name
 
 
+# ── Act 4 (second half): Lakebase Change Data Feed helpers ───────────────────
+
+def _cdf_parent():
+    """Resource name of the database the CDF config lives under."""
+    return f"projects/{get_project()}/branches/production/databases/{CDF_DATABASE}"
+
+
+def _cdf_config_name():
+    """Full resource name of the CDF config."""
+    return f"{_cdf_parent()}/cdf-configs/{CDF_CONFIG_ID}"
+
+
+def _cdf_config_exists(w):
+    """True if the CDF config already exists (idempotent enable / resumed click)."""
+    try:
+        w.postgres.get_cdf_config(name=_cdf_config_name())
+        return True
+    except Exception:
+        return False
+
+
+def _drop_cdf_history_tables():
+    """Drop every lb_*_history Delta table CDF produced in the gold schema.
+
+    Discovered dynamically (via information_schema) so auto-suffixed leftovers
+    from prior runs (lb_opportunities_history_1, …) are swept up too. Returns the
+    list of fully-qualified names dropped. Best-effort per table; raises only if
+    the initial listing query fails. Skips if the schema doesn't exist.
+    """
+    dropped: list[str] = []
+    # List history tables in the CDF schema. If the schema/catalog is gone the
+    # query fails — caller treats that as "nothing to clean up".
+    resp = run_warehouse_sql(f"""
+        SELECT table_name FROM {GOLD_CATALOG}.information_schema.tables
+        WHERE table_schema = '{CDF_UC_SCHEMA}'
+          AND table_name LIKE 'lb\\_%\\_history' ESCAPE '\\'
+    """)
+    names = [row[0] for row in (resp.result.data_array or [])] if resp.result else []
+    for name in names:
+        fq = f"{GOLD_CATALOG}.{CDF_UC_SCHEMA}.{name}"
+        try:
+            run_warehouse_sql(f"DROP TABLE IF EXISTS {fq}")
+            dropped.append(name)
+        except Exception:
+            logger.warning(f"Could not drop CDF history table {fq}")
+    return dropped
+
+
+def _cdf_opportunities_streaming(w):
+    """Return the CdfStatus for sales.opportunities if it's actively streaming,
+    else None. Used to tell the presenter the feed is live before querying Delta."""
+    try:
+        for st in w.postgres.list_cdf_statuses(parent=_cdf_config_name()):
+            pg = (st.postgres_table or "")
+            if pg.endswith("opportunities") or pg.endswith(".opportunities"):
+                return st
+    except Exception:
+        return None
+    return None
+
+
+@router.post("/act4/cdf-enable")
+def act4_cdf_enable():
+    """Act 4 (CDF) step 1: enable Change Data Feed on the `sales` schema.
+
+    Sets REPLICA IDENTITY FULL on the sales tables (required so updates/deletes
+    carry full row images), then creates a schema-level CDF config that
+    materializes every sales table as a Delta `lb_<table>_history` table in
+    GOLD_CATALOG.CDF_UC_SCHEMA. The app SP owns the sales tables and has CAN
+    MANAGE on the project (granted at deploy), plus CREATE on the destination
+    schema (granted at deploy), so it can do all of this itself.
+
+    Idempotent & resumable: if the config already exists it reports that and
+    returns ok:true. create_cdf_config is long-running (initial snapshot), so we
+    kick it off with --no-wait semantics and let the query step poll for STREAMING.
+    """
+    log: list[str] = []
+    try:
+        w, _ = get_client()
+
+        # Already enabled? (re-run / resumed click)
+        if _cdf_config_exists(w):
+            log.append(f"CDF already enabled on schema '{CDF_SOURCE_SCHEMA}'.")
+            log.append(f"History tables materialize under {GOLD_CATALOG}.{CDF_UC_SCHEMA} (lb_<table>_history).")
+            return {"ok": True, "log": log}
+
+        # REPLICA IDENTITY FULL on every sales table so update/delete change rows
+        # carry the full old image (pre-image), not just the primary key.
+        log.append("Setting REPLICA IDENTITY FULL on the sales tables…")
+        with get_conn() as conn:
+            cur = conn.cursor()
+            cur.execute("""SELECT table_name FROM information_schema.tables
+                           WHERE table_schema=%s AND table_type='BASE TABLE'""",
+                        (CDF_SOURCE_SCHEMA,))
+            tbls = [r[0] for r in cur.fetchall()]
+            if not tbls:
+                raise HTTPException(400, {"log": log,
+                    "error": f"No tables in '{CDF_SOURCE_SCHEMA}'. Run Setup (Create/Populate) first."})
+            for t in tbls:
+                cur.execute(f'ALTER TABLE {CDF_SOURCE_SCHEMA}."{t}" REPLICA IDENTITY FULL')
+            log.append(f"REPLICA IDENTITY FULL set on {len(tbls)} tables: {', '.join(tbls)}.")
+
+        # Create the schema-level CDF config. Long-running (initial snapshot) —
+        # don't block the request; the query step polls list_cdf_statuses.
+        import databricks.sdk.service.postgres as _pg
+        log.append(f"Enabling Change Data Feed on schema '{CDF_SOURCE_SCHEMA}'…")
+        w.postgres.create_cdf_config(
+            parent=_cdf_parent(),
+            cdf_config=_pg.CdfConfig(
+                catalog=GOLD_CATALOG,
+                schema=CDF_UC_SCHEMA,
+                postgres_schema=CDF_SOURCE_SCHEMA,
+            ),
+            cdf_config_id=CDF_CONFIG_ID,
+        )
+        log.append("CDF config created. Initial snapshot + streaming starting…")
+        log.append(f"Every table now writes its change history to {GOLD_CATALOG}.{CDF_UC_SCHEMA}.lb_<table>_history.")
+        log.append("Changes batch to Delta from the WAL every ~15s.")
+        return {"ok": True, "log": log}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Act 4 CDF enable failed")
+        log.append(f"ERROR: {e}")
+        raise HTTPException(500, {"log": log, "error": str(e)})
+
+
+@router.post("/act4/cdf-query")
+def act4_cdf_query():
+    """Act 4 (CDF) step 3: query the change feed in the lakehouse.
+
+    Reads the per-table CDF status (proving the feed is STREAMING with a
+    committed LSN), then queries the Delta `lb_opportunities_history` table via
+    the SQL warehouse and streams the most recent change rows — showing the app
+    write (an INSERT/UPDATE the presenter made in step 2) as a queryable Delta
+    row with _pg_change_type / _pg_lsn / _timestamp.
+
+    Resumable: CDF batches every ~15s, so if the change hasn't landed yet we
+    return ok:false ("click again in a few seconds") instead of failing.
+    """
+    log: list[str] = []
+    try:
+        w, _ = get_client()
+
+        if not _cdf_config_exists(w):
+            raise HTTPException(400, {"log": log,
+                "error": "CDF is not enabled yet — run step 1 first."})
+
+        # Show the feed status for the opportunities table.
+        st = _cdf_opportunities_streaming(w)
+        if st is not None:
+            state = getattr(st.state, "value", st.state)
+            log.append(f"CDF status for sales.opportunities: {state}"
+                       + (f" (committed_lsn={st.committed_lsn})" if st.committed_lsn else ""))
+
+        # Query the Delta change-feed table for the newest changes.
+        log.append(f"Reading the CDF Delta table {CDF_HISTORY_TABLE}…")
+        try:
+            resp = run_warehouse_sql(f"""
+                SELECT _pg_change_type, _pg_lsn, _timestamp,
+                       id, account_id, amount_usd, stage
+                FROM {CDF_HISTORY_TABLE}
+                ORDER BY _sort_by DESC
+                LIMIT 5
+            """)
+        except Exception as qe:
+            # Table not created yet = snapshot hasn't produced the first flush.
+            log.append("Change feed table not ready yet (initial snapshot still flushing).")
+            log.append("CDF flushes from the WAL every ~15s — click again in a few seconds.")
+            log.append(f"(detail: {qe})")
+            return {"ok": False, "provisioning": True, "log": log}
+
+        rows = resp.result.data_array if (resp.result and resp.result.data_array) else []
+        if not rows:
+            log.append("No change rows yet — make a change in the app (step 2), then click again.")
+            return {"ok": False, "provisioning": True, "log": log}
+
+        log.append(f"Found {len(rows)} recent change row(s) in the lakehouse:")
+        for r in rows:
+            ct, lsn, ts = r[0], r[1], r[2]
+            oid, acct, amt, stage = r[3], r[4], r[5], r[6]
+            log.append(f"  {ct}: opp id={oid} account={acct} amount={amt} stage={stage} (lsn={lsn}, {ts})")
+        log.append("The app write is now a queryable Delta row — zero ETL glue.")
+        log.append("Bidirectional loop closed: lakehouse→app (synced tables) and app→lakehouse (CDF).")
+        return {"ok": True, "log": log}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Act 4 CDF query failed")
+        log.append(f"ERROR: {e}")
+        raise HTTPException(500, {"log": log, "error": str(e)})
+
+
 # ══════════════════════════════════════════════════════════════════════════
 # Act 5: End-of-Quarter Load Test & Autoscaling
 #
@@ -1099,9 +1333,11 @@ def _build_load_query(rows: int) -> str:
         f"FROM generate_series(1, {int(rows)}) g) x"
     )
 
-# Default per-query weight: 3M rows x ~5 md5 ops each ≈ 15M hashes (~1-2s of
-# pure CPU per query) — heavy enough that a few hundred workers pin all CUs.
-_DEFAULT_LOAD_ROWS = 3_000_000
+# Default per-query weight: 5M rows x ~5 md5 ops each ≈ 25M hashes (~2-3s of
+# pure CPU per query). Heavier queries keep each worker's core pinned longer, so
+# the SUSTAINED CPU (what actually drives autoscaling) stays high between the
+# poll windows — pushing the compute well past the ~4 CU it used to settle at.
+_DEFAULT_LOAD_ROWS = 5_000_000
 _load_query = _build_load_query(_DEFAULT_LOAD_ROWS)
 
 # Shared load-test state (single test at a time).
@@ -1112,6 +1348,7 @@ _load = {
     "active_connections": 0,
     "total_queries": 0,
     "errors": 0,
+    "conn_retries": 0,
     "peak_connections": 0,
     "start_time": None,
     "elapsed": 0.0,
@@ -1140,39 +1377,80 @@ def _worker_connection():
 
 
 def _load_worker(start_delay):
+    """A resilient load worker: keeps a connection busy with heavy CPU queries for
+    the whole test, RECONNECTING on any failure instead of dying.
+
+    Why reconnect (not break): at low CU the endpoint's connection-permit budget
+    is small (~290), so cold-launching hundreds of workers makes many connections
+    fail transiently. If a worker died on its first failure, the very act of
+    pushing load would thin the herd and the compute would settle low (~4 CU). By
+    backing off and retrying, workers that can't get in yet keep trying — and as
+    the compute scales up the permit budget grows, more workers become active,
+    CPU demand rises, and it scales further. That positive feedback is what pushes
+    the compute well past 4 CU and keeps it there for the whole run.
+
+    Connection-permit backoffs are counted as `conn_retries` (expected, not shown
+    as errors); only a query that fails on an *established* connection counts as a
+    real `error`, so the UI's Errors tile stays near zero (the "no downtime" story).
+    """
+    import random
     _load_stop.wait(start_delay)
-    if _load_stop.is_set():
-        return
-    try:
-        conn = _worker_connection()
-    except Exception as e:
-        with _load_lock:
-            _load["errors"] += 1
-            if not _load.get("last_error"):
-                _load["last_error"] = f"{type(e).__name__}: {e}"[:200]
-        return
-    with _load_lock:
-        _load["active_connections"] += 1
-        _load["peak_connections"] = max(_load["peak_connections"], _load["active_connections"])
-    cur = conn.cursor()
+    conn = None
+    cur = None
+    connected = False
     try:
         while not _load_stop.is_set():
+            # (Re)connect if we don't currently hold a live connection.
+            if conn is None:
+                try:
+                    conn = _worker_connection()
+                    cur = conn.cursor()
+                    connected = True
+                    with _load_lock:
+                        _load["active_connections"] += 1
+                        _load["peak_connections"] = max(
+                            _load["peak_connections"], _load["active_connections"])
+                except Exception as e:
+                    # Permit throttle / transient — back off and try again; this
+                    # is expected under load, so it's a retry, not an error.
+                    with _load_lock:
+                        _load["conn_retries"] = _load.get("conn_retries", 0) + 1
+                        if not _load.get("last_error"):
+                            _load["last_error"] = f"{type(e).__name__}: {e}"[:200]
+                    if _load_stop.wait(1.0 + random.random()):
+                        break
+                    continue
+
+            # Run one heavy, CPU-bound query.
             try:
                 cur.execute(_load_query)
                 cur.fetchone()
                 with _load_lock:
                     _load["total_queries"] += 1
             except Exception:
+                # Drop the (possibly broken) connection and reconnect — don't die.
                 with _load_lock:
                     _load["errors"] += 1
-                break
+                    if connected:
+                        _load["active_connections"] -= 1
+                connected = False
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+                conn = None
+                cur = None
+                if _load_stop.wait(0.3 + random.random() * 0.5):
+                    break
     finally:
-        with _load_lock:
-            _load["active_connections"] -= 1
-        try:
-            conn.close()
-        except Exception:
-            pass
+        if connected:
+            with _load_lock:
+                _load["active_connections"] -= 1
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 
 def _sample_vcpus():
@@ -1219,9 +1497,9 @@ def _load_orchestrator(num_workers, duration_s, ramp_s, step_at=30, wave1_frac=0
     with _load_lock:
         _load.update(running=True, workers=0, target_workers=num_workers,
                      active_connections=0, total_queries=0, errors=0,
-                     peak_connections=0, start_time=time.time(), elapsed=0.0,
-                     vcpus=None, timeline=[], phase="wave1", last_error=None,
-                     step_at=step_at, stepped=False)
+                     conn_retries=0, peak_connections=0, start_time=time.time(),
+                     elapsed=0.0, vcpus=None, timeline=[], phase="wave1",
+                     last_error=None, step_at=step_at, stepped=False)
     _load_stop.clear()
     _last_qcount_for_qps.update(t=time.time(), q=0)
 
@@ -1269,7 +1547,7 @@ def _load_orchestrator(num_workers, duration_s, ramp_s, step_at=30, wave1_frac=0
 
 
 @router.post("/act5/start")
-def act5_start(num_workers: int = 500, duration_s: int = 90, ramp_s: int = 15,
+def act5_start(num_workers: int = 600, duration_s: int = 150, ramp_s: int = 15,
                step_at: int = 30, rows: int = _DEFAULT_LOAD_ROWS):
     """Start the two-wave "step" end-of-quarter load test in the background.
 
@@ -1315,6 +1593,7 @@ def act5_progress():
             "peak_connections": _load["peak_connections"],
             "total_queries": _load["total_queries"],
             "errors": _load["errors"],
+            "conn_retries": _load.get("conn_retries", 0),
             "elapsed": round(_load["elapsed"], 1),
             "qps": qps,
             "vcpus": _load["vcpus"],

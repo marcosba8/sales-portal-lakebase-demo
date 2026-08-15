@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Sales Pipeline Portal — Lakebase Demo · Presenter Script</title>
+<style>
+  :root {
+    --navy: #1B3139;
+    --navy-dark: #0E1B20;
+    --lava: #FF3621;
+    --lava-soft: #FFF1EE;
+    --oat: #F5F5F0;
+    --oat-line: #E0DED8;
+    --blue: #2272B4;
+    --green: #1F8A5B;
+    --gray-800: #1B3139;
+    --gray-600: #4A4842;
+    --gray-500: #6B6862;
+    --gray-400: #98948B;
+    --white: #FFFFFF;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: var(--gray-800);
+    background: var(--oat);
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 0 24px 80px; }
+
+  /* Header */
+  header.hero {
+    background: var(--navy);
+    color: var(--white);
+    padding: 48px 0 40px;
+    border-bottom: 4px solid var(--lava);
+  }
+  header.hero .wrap { padding-bottom: 0; }
+  .eyebrow {
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--lava);
+    margin: 0 0 10px;
+  }
+  header.hero h1 { font-size: 34px; line-height: 1.15; margin: 0 0 12px; font-weight: 800; }
+  header.hero p { font-size: 16px; color: rgba(255,255,255,0.78); max-width: 640px; margin: 0; }
+  .meta {
+    display: flex; flex-wrap: wrap; gap: 10px; margin-top: 22px;
+  }
+  .chip {
+    font-size: 12px; font-weight: 600;
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.16);
+    color: rgba(255,255,255,0.85);
+    border-radius: 999px; padding: 5px 12px;
+  }
+
+  /* Through-line callout */
+  .throughline {
+    background: var(--lava-soft);
+    border: 1px solid #F6C9C0;
+    border-left: 4px solid var(--lava);
+    border-radius: 10px;
+    padding: 16px 18px;
+    margin: 28px 0 8px;
+    font-size: 15px;
+  }
+  .throughline strong { color: var(--lava); }
+
+  /* Table of contents */
+  nav.toc {
+    background: var(--white);
+    border: 1px solid var(--oat-line);
+    border-radius: 12px;
+    padding: 18px 20px;
+    margin: 24px 0 8px;
+  }
+  nav.toc h2 {
+    font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em;
+    color: var(--gray-500); margin: 0 0 12px;
+  }
+  nav.toc ol { margin: 0; padding-left: 0; list-style: none; counter-reset: toc; }
+  nav.toc li { counter-increment: toc; margin: 0; }
+  nav.toc a {
+    display: flex; align-items: baseline; gap: 12px;
+    text-decoration: none; color: var(--gray-800);
+    padding: 8px 6px; border-radius: 8px;
+    border-bottom: 1px solid var(--oat);
+    font-size: 15px;
+  }
+  nav.toc li:last-child a { border-bottom: none; }
+  nav.toc a:hover { background: var(--oat); }
+  nav.toc .toc-num {
+    flex-shrink: 0; width: 24px; height: 24px; border-radius: 6px;
+    background: var(--navy); color: var(--white);
+    font-size: 12px; font-weight: 700;
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  nav.toc .toc-theme { color: var(--gray-500); font-size: 13px; margin-left: auto; text-align: right; }
+
+  /* Sections */
+  section.act { margin-top: 40px; }
+  .act-head { display: flex; align-items: flex-start; gap: 14px; margin-bottom: 6px; }
+  .act-badge {
+    flex-shrink: 0; width: 40px; height: 40px; border-radius: 10px;
+    background: var(--lava); color: var(--white);
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 18px; font-weight: 800;
+  }
+  .act-badge.setup { background: var(--navy); }
+  .act-head h2 { font-size: 24px; margin: 0; line-height: 1.2; font-weight: 800; }
+  .act-theme {
+    font-size: 13px; font-weight: 600; color: var(--lava);
+    text-transform: uppercase; letter-spacing: 0.06em; margin: 4px 0 0;
+  }
+  .divider { height: 1px; background: var(--oat-line); margin: 14px 0 18px; }
+
+  /* Do-this block */
+  .do {
+    display: flex; align-items: flex-start; gap: 10px;
+    background: var(--white); border: 1px solid var(--oat-line);
+    border-radius: 10px; padding: 12px 14px; margin: 0 0 18px;
+    font-size: 14px;
+  }
+  .do .do-label {
+    flex-shrink: 0; font-size: 11px; font-weight: 800; text-transform: uppercase;
+    letter-spacing: 0.06em; color: var(--white); background: var(--blue);
+    border-radius: 6px; padding: 3px 8px; margin-top: 1px;
+  }
+  .do code {
+    background: var(--oat); border-radius: 4px; padding: 1px 5px;
+    font-size: 13px; color: var(--navy-dark);
+  }
+
+  /* Say quote */
+  .say {
+    border-left: 4px solid var(--navy);
+    background: var(--white);
+    border-radius: 0 10px 10px 0;
+    padding: 16px 18px;
+    margin: 0 0 18px;
+    font-size: 16px;
+    color: var(--gray-800);
+  }
+  .say::before {
+    content: "SAY";
+    display: block; font-size: 10px; font-weight: 800; letter-spacing: 0.1em;
+    color: var(--gray-400); margin-bottom: 8px;
+  }
+  .say p { margin: 0 0 12px; }
+  .say p:last-child { margin-bottom: 0; }
+
+  /* Why Lakebase */
+  .why {
+    background: #EAF4FB;
+    border: 1px solid #C5E0F2;
+    border-radius: 10px;
+    padding: 14px 16px;
+    margin: 0 0 14px;
+    font-size: 14.5px;
+  }
+  .why h3 {
+    font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em;
+    color: var(--blue); margin: 0 0 6px; font-weight: 800;
+  }
+  .why p { margin: 0; color: var(--gray-600); }
+  .docs {
+    margin-top: 10px; padding-top: 10px; border-top: 1px solid #C5E0F2;
+    font-size: 13px;
+  }
+  .docs .docs-label {
+    font-size: 11px; font-weight: 800; text-transform: uppercase;
+    letter-spacing: 0.06em; color: var(--gray-400); margin-right: 8px;
+  }
+  .docs a { color: var(--blue); text-decoration: none; font-weight: 600; }
+  .docs a:hover { text-decoration: underline; }
+  .docs a + a { margin-left: 4px; }
+  .docs .sep { color: var(--gray-400); margin: 0 6px; }
+
+  /* Takeaway */
+  .takeaway {
+    display: flex; align-items: baseline; gap: 8px;
+    font-size: 14.5px; color: var(--green); font-weight: 600;
+    padding: 4px 2px;
+  }
+  .takeaway .tk-label {
+    font-size: 11px; font-weight: 800; text-transform: uppercase;
+    letter-spacing: 0.06em; color: var(--gray-400);
+    flex-shrink: 0;
+  }
+
+  /* Close */
+  .close-box {
+    background: var(--navy); color: var(--white);
+    border-radius: 12px; padding: 26px 26px; margin-top: 44px;
+    border-top: 4px solid var(--lava);
+  }
+  .close-box .eyebrow { margin-bottom: 12px; }
+  .close-box p { font-size: 16px; color: rgba(255,255,255,0.88); margin: 0; }
+  .close-box strong { color: var(--white); }
+
+  footer.foot {
+    text-align: center; color: var(--gray-400); font-size: 12px;
+    margin-top: 40px;
+  }
+
+  /* Print */
+  @media print {
+    body { background: var(--white); }
+    header.hero { border-bottom-color: var(--lava); }
+    nav.toc { display: none; }
+    section.act { page-break-inside: avoid; }
+    .say, .why, .do, .throughline, .close-box { box-shadow: none; }
+    a[href^="#"] { color: inherit; text-decoration: none; }
+  }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap">
+    <p class="eyebrow">Presenter Script</p>
+    <h1>Sales Pipeline Portal — Lakebase Demo</h1>
+    <p>A ten-minute story showing how Lakebase brings your operational apps and your lakehouse onto one platform — no separate database to run, no ETL to maintain, no second copy of your data to secure.</p>
+    <div class="meta">
+      <span class="chip">Audience: business + technical buyers</span>
+      <span class="chip">Duration: ~10–12 min</span>
+      <span class="chip">Driven from the Demo Control panel</span>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <div class="throughline">
+    <strong>The through-line to repeat:</strong> one platform, operational and analytical together — no glue, no copies, no separate ops.
+  </div>
+
+  <nav class="toc">
+    <h2>Run of show</h2>
+    <ol>
+      <li><a href="#opening"><span class="toc-num">▸</span> Opening — set the stage <span class="toc-theme">framing</span></a></li>
+      <li><a href="#setup"><span class="toc-num">⚙</span> Setup — prepare the app <span class="toc-theme">context</span></a></li>
+      <li><a href="#act1"><span class="toc-num">1</span> Branching &amp; Schema Evolution <span class="toc-theme">developer velocity</span></a></li>
+      <li><a href="#act2"><span class="toc-num">2</span> Disaster &amp; Point-in-Time Recovery <span class="toc-theme">resilience</span></a></li>
+      <li><a href="#act3"><span class="toc-num">3</span> Synced Tables — Lakehouse → App <span class="toc-theme">AI in the app</span></a></li>
+      <li><a href="#act4"><span class="toc-num">4</span> Change Data Feed — App → Lakehouse <span class="toc-theme">closing the loop</span></a></li>
+      <li><a href="#act5"><span class="toc-num">5</span> Load Test &amp; Autoscaling <span class="toc-theme">elastic scale</span></a></li>
+      <li><a href="#close"><span class="toc-num">▪</span> Close — tie it together <span class="toc-theme">summary</span></a></li>
+    </ol>
+  </nav>
+
+  <!-- OPENING -->
+  <section class="act" id="opening">
+    <div class="act-head">
+      <span class="act-badge setup">▸</span>
+      <div>
+        <h2>Opening — set the stage</h2>
+        <p class="act-theme">Framing · ~60 sec</p>
+      </div>
+    </div>
+    <div class="divider"></div>
+    <div class="say">
+      <p>"What you're looking at is a real operational application — a sales pipeline portal that reps use every day. Behind it is <strong>Lakebase: a fully-managed Postgres database that's native to the Databricks platform.</strong>"</p>
+      <p>"Here's why that matters. Traditionally, an app like this runs on a separate operational database — an RDS or a self-managed Postgres — that lives completely apart from your analytics. So you end up with two worlds: the operational database that powers the app, and the lakehouse where all your analytics and AI happen. Keeping them in sync means pipelines, reverse-ETL, nightly jobs, duplicate copies of data, separate security models, and separate teams."</p>
+      <p>"Lakebase collapses that. It's Postgres — your developers use it exactly like any Postgres — but it's part of the same platform as your lakehouse, governed by the same Unity Catalog. Today I'm going to drive this app from a control panel on the right, and show you five things that are normally hard, expensive, or impossible when your operational database is an island."</p>
+    </div>
+  </section>
+
+  <!-- SETUP -->
+  <section class="act" id="setup">
+    <div class="act-head">
+      <span class="act-badge setup">⚙</span>
+      <div>
+        <h2>Setup — "Prepare the app"</h2>
+        <p class="act-theme">Context · ~30 sec</p>
+      </div>
+    </div>
+    <div class="divider"></div>
+    <div class="do">
+      <span class="do-label">Do</span>
+      <span>Click <code>Create tables</code>, then <code>Populate data</code>. Show Accounts &amp; Opportunities filling in.</span>
+    </div>
+    <div class="say">
+      <p>"First I'll stand up the app's data — accounts, opportunities, activities. This is ordinary Postgres: tables, foreign keys, transactions. Nothing exotic. Your team already knows how to build on this."</p>
+    </div>
+    <div class="why">
+      <h3>Why Lakebase</h3>
+      <p>Lakebase is standard Postgres 17 under the hood, so existing skills, drivers, and ORMs just work — there's no proprietary API to learn.</p>
+      <div class="docs">
+        <span class="docs-label">Docs</span>
+        <a href="https://docs.databricks.com/aws/en/oltp/" target="_blank" rel="noreferrer">Lakebase (OLTP) overview ↗</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- ACT 1 -->
+  <section class="act" id="act1">
+    <div class="act-head">
+      <span class="act-badge">1</span>
+      <div>
+        <h2>Branching &amp; Schema Evolution</h2>
+        <p class="act-theme">Business theme: developer velocity without risk</p>
+      </div>
+    </div>
+    <div class="divider"></div>
+    <div class="do">
+      <span class="do-label">Do</span>
+      <span>Create the <code>dev-health</code> branch → develop new features on it → promote to production → delete the branch.</span>
+    </div>
+    <div class="say">
+      <p>"Our product team wants to add a customer health score and a renewals table. Normally, testing a schema change against production-like data is scary — you either work on a stale copy, or you risk the live system."</p>
+      <p>"Watch this: I create a <strong>branch</strong> of the database. It's an instant, zero-copy clone — a full copy of production data, but I'm not actually duplicating any storage. I build my new features on that branch, safely isolated. When I'm happy, I promote the changes and throw the branch away."</p>
+    </div>
+    <div class="why">
+      <h3>Why Lakebase</h3>
+      <p>Branching works like Git for your database — copy-on-write means a branch is created in seconds regardless of database size, and it doesn't cost you a second copy of storage. Developers get a real, production-grade sandbox on demand, which means faster iteration and dramatically fewer "it worked in staging" surprises.</p>
+      <div class="docs">
+        <span class="docs-label">Docs</span>
+        <a href="https://docs.databricks.com/aws/en/oltp/projects/branches" target="_blank" rel="noreferrer">Database branches ↗</a>
+      </div>
+    </div>
+    <div class="takeaway"><span class="tk-label">Takeaway</span> Your team ships changes faster and safer — dev/test on real data without cloning it.</div>
+  </section>
+
+  <!-- ACT 2 -->
+  <section class="act" id="act2">
+    <div class="act-head">
+      <span class="act-badge">2</span>
+      <div>
+        <h2>Disaster &amp; Point-in-Time Recovery</h2>
+        <p class="act-theme">Business theme: resilience — the 2 a.m. incident</p>
+      </div>
+    </div>
+    <div class="divider"></div>
+    <div class="do">
+      <span class="do-label">Do</span>
+      <span>Simulate disaster (drops the opportunities table) → show the app degrade gracefully → create the PITR recovery branch → restore.</span>
+    </div>
+    <div class="say">
+      <p>"Now the nightmare scenario. Someone runs the wrong command and the entire opportunities pipeline is gone. Watch the app — the Opportunities tab now says 'Pipeline Temporarily Unavailable,' but notice Accounts still works. The app degrades gracefully instead of falling over."</p>
+      <p>"Here's the recovery. I don't need a backup file or a maintenance window. I <strong>rewind the database to the exact moment before the disaster</strong> — onto an isolated branch — confirm the data is all there, and restore it to production. Full recovery, zero data loss."</p>
+    </div>
+    <div class="why">
+      <h3>Why Lakebase</h3>
+      <p>Lakebase continuously retains change history, so <strong>point-in-time recovery</strong> lets you branch from any moment in the recent past — not just last night's backup. Because recovery happens on a separate branch first, you can inspect and validate the recovered state <em>before</em> you touch production. That turns a potential multi-hour outage and data-loss event into a few clicks.</p>
+      <div class="docs">
+        <span class="docs-label">Docs</span>
+        <a href="https://docs.databricks.com/aws/en/oltp/projects/point-in-time-restore" target="_blank" rel="noreferrer">Point-in-time restore ↗</a>
+      </div>
+    </div>
+    <div class="takeaway"><span class="tk-label">Takeaway</span> When something goes wrong — and eventually it does — you recover to the exact second, with no data loss and no downtime drama.</div>
+  </section>
+
+  <!-- ACT 3 -->
+  <section class="act" id="act3">
+    <div class="act-head">
+      <span class="act-badge">3</span>
+      <div>
+        <h2>Synced Tables: Lakehouse → App</h2>
+        <p class="act-theme">Business theme: bringing AI &amp; analytics into the operational app</p>
+      </div>
+    </div>
+    <div class="divider"></div>
+    <div class="do">
+      <span class="do-label">Do</span>
+      <span>Publish the ML churn gold table → sync to Lakebase → the <code>Retention Risk</code> tab lights up (grayed "unknown" customers → populated churn scores).</span>
+    </div>
+    <div class="say">
+      <p>"Our data science team built a churn model in the lakehouse. Its output is a gold table — every account scored for churn risk. The question every company struggles with: how do you get that insight <em>into the hands of the rep, inside the app they're already using?</em>"</p>
+      <p>"Normally that's a reverse-ETL project — a pipeline, a schedule, a vendor. Watch instead: I <strong>sync</strong> that lakehouse table directly into Lakebase. The Retention Risk page was grayed out — 'no insight yet' — and now the same customers light up with risk scores, dollars at risk, and recommended actions. No pipeline to build, no app redeploy."</p>
+    </div>
+    <div class="why">
+      <h3>Why Lakebase</h3>
+      <p>A <strong>synced table</strong> keeps a Lakehouse Delta table continuously mirrored into Lakebase Postgres, managed by the platform. Your analytics and AI outputs become low-latency data the app can read like any other Postgres table — so model results reach the front line in near-real-time, without you owning any integration code.</p>
+      <div class="docs">
+        <span class="docs-label">Docs</span>
+        <a href="https://docs.databricks.com/aws/en/oltp/projects/quickstart-synced-tables" target="_blank" rel="noreferrer">Synced tables ↗</a>
+      </div>
+    </div>
+    <div class="takeaway"><span class="tk-label">Takeaway</span> Your AI investments actually reach the people doing the work — analytics flows into the app automatically.</div>
+  </section>
+
+  <!-- ACT 4 -->
+  <section class="act" id="act4">
+    <div class="act-head">
+      <span class="act-badge">4</span>
+      <div>
+        <h2>Change Data Feed: App → Lakehouse</h2>
+        <p class="act-theme">Business theme: closing the loop — the operational database feeds analytics</p>
+      </div>
+    </div>
+    <div class="divider"></div>
+    <div class="do">
+      <span class="do-label">Do</span>
+      <span>Enable Change Data Feed on the schema → add a manual opportunity in the app → check <code>lb_opportunities_history</code> in the lakehouse.</span>
+    </div>
+    <div class="say">
+      <p>"That was analytics flowing <em>into</em> the app. Now the reverse. Every action a rep takes — creating a deal, updating a stage — is business data your analysts and models want, immediately."</p>
+      <p>"I'll turn on <strong>Change Data Feed</strong>, then act like a rep and add a new opportunity right here in the app. Behind the scenes, that insert is captured and lands in the lakehouse as an open Delta table — every insert, update, and delete, as it happens. No CDC tool, no nightly export."</p>
+    </div>
+    <div class="why">
+      <h3>Why Lakebase</h3>
+      <p>Change Data Feed captures changes straight from the database's write-ahead log and materializes them as governed Delta tables in Unity Catalog. So the operational database becomes a <strong>live source for analytics</strong> with no external CDC infrastructure — and combined with Act 3, you now have a full bidirectional loop: the lakehouse feeds the app, and the app feeds the lakehouse.</p>
+      <div class="docs">
+        <span class="docs-label">Docs</span>
+        <a href="https://docs.databricks.com/aws/en/oltp/projects/quickstart-lakebase-cdf" target="_blank" rel="noreferrer">Lakebase Change Data Feed ↗</a>
+      </div>
+    </div>
+    <div class="takeaway"><span class="tk-label">Takeaway</span> Operational and analytical data stay continuously connected — one source of truth, no glue code, fully governed.</div>
+  </section>
+
+  <!-- ACT 5 -->
+  <section class="act" id="act5">
+    <div class="act-head">
+      <span class="act-badge">5</span>
+      <div>
+        <h2>End-of-Quarter Load Test &amp; Autoscaling</h2>
+        <p class="act-theme">Business theme: elastic scale, pay for what you use</p>
+      </div>
+    </div>
+    <div class="divider"></div>
+    <div class="do">
+      <span class="do-label">Do</span>
+      <span>Open <code>Lakebase Monitoring</code> first → launch the surge → watch the Monitoring graph respond.</span>
+    </div>
+    <div class="say">
+      <p>"Last one. It's the final day of the quarter and the entire sales org floods the portal at once. With a fixed database, this is where you either over-provision year-round for a few peak days, or you fall over under load."</p>
+      <p>"I'll open the live monitoring graph, then unleash a surge of concurrent users hammering the database. Watch the compute respond — it scales up to absorb the load automatically, no config change, no downtime — and when the rush passes, it scales back down so you're not paying for idle capacity."</p>
+    </div>
+    <div class="why">
+      <h3>Why Lakebase</h3>
+      <p>Lakebase <strong>autoscales compute</strong> with demand and can scale down to near-zero when idle. You get burst capacity for your peak moments without paying for it the other 360 days a year — the economics of serverless applied to your operational database.</p>
+      <div class="docs">
+        <span class="docs-label">Docs</span>
+        <a href="https://docs.databricks.com/aws/en/oltp/projects/autoscaling" target="_blank" rel="noreferrer">Autoscaling ↗</a>
+        <span class="sep">·</span>
+        <a href="https://docs.databricks.com/aws/en/oltp/projects/scale-to-zero" target="_blank" rel="noreferrer">Scale to zero ↗</a>
+      </div>
+    </div>
+    <div class="takeaway"><span class="tk-label">Takeaway</span> Handle your busiest day without over-buying for it — elastic, usage-based operational data.</div>
+  </section>
+
+  <!-- CLOSE -->
+  <section id="close">
+    <div class="close-box">
+      <p class="eyebrow">Close — tie it together · ~30 sec</p>
+      <p>"So in ten minutes, on one platform: developers moved faster with branching, we survived a disaster with zero data loss, we put AI insights directly in front of reps, we streamed live app activity back to analytics, and we absorbed a peak-day surge automatically. <strong>No separate operational database to run, no ETL to maintain, no second copy of your data to secure.</strong> That's Lakebase — your operational apps and your lakehouse, finally in one place."</p>
+    </div>
+  </section>
+
+  <footer class="foot">
+    Sales Pipeline Portal · Lakebase Demo — presenter script. Numbers reflect the deployed demo (30 accounts, 50 opportunities, 300 → 600 surge).
+  </footer>
+
+</div>
+</body>
+</html>
