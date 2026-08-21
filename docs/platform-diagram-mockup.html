@@ -1,0 +1,320 @@
+<title>Platform Highlight Mockup</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+<style>
+  :root{
+    --bg:#EFEDE7; --surface:#FFFFFF; --ink:#1B3139; --muted:#6B6862;
+    --line:#DED9CF; --accent:#FF3621; --accent-soft:#FFE7E1;
+    --navy:#1B3139; --navy-deep:#0E1B20; --green:#00A972;
+    /* stack band tints */
+    --cream:#FBF7F0; --cream-line:#ECE3D4;
+    --cool:#EEF2F6; --cool-line:#DCE4EC;
+    --chip:#FFFFFF; --chip-line:#E2DED6; --chip-ink:#1B3139; --chip-sub:#6B6862;
+  }
+  :root:not([data-theme="light"]) {}
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#0B1418; --surface:#132228; --ink:#EEF1F0; --muted:#9BA7AC;
+      --line:#24363D; --accent:#FF6A54; --accent-soft:#3A211C;
+      --cream:#1B2A31; --cream-line:#26383F;
+      --cool:#152329; --cool-line:#24363D;
+      --chip:#1B2A31; --chip-line:#2C3F47; --chip-ink:#EEF1F0; --chip-sub:#9BA7AC;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#0B1418; --surface:#132228; --ink:#EEF1F0; --muted:#9BA7AC;
+    --line:#24363D; --accent:#FF6A54; --accent-soft:#3A211C;
+    --cream:#1B2A31; --cream-line:#26383F;
+    --cool:#152329; --cool-line:#24363D;
+    --chip:#1B2A31; --chip-line:#2C3F47; --chip-ink:#EEF1F0; --chip-sub:#9BA7AC;
+  }
+
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    background:var(--bg); color:var(--ink);
+    font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+    line-height:1.5; padding:28px 20px 64px;
+  }
+  .wrap{max-width:1240px;margin:0 auto}
+  .lede{max-width:70ch}
+  h1{font-size:26px;font-weight:800;letter-spacing:-0.02em;text-wrap:balance}
+  .sub{color:var(--muted);font-size:14.5px;margin-top:6px}
+
+  /* ---- control strip ---- */
+  .controls{
+    position:sticky;top:0;z-index:20;margin:22px 0 26px;
+    background:color-mix(in srgb,var(--bg) 88%, transparent);
+    backdrop-filter:blur(6px);
+    padding:12px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line);
+    display:flex;flex-wrap:wrap;align-items:center;gap:8px;
+  }
+  .controls .lbl{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.09em;color:var(--muted);margin-right:4px}
+  .actbtn{
+    font:inherit;font-size:13px;font-weight:600;cursor:pointer;
+    padding:7px 13px;border-radius:999px;border:1px solid var(--line);
+    background:var(--surface);color:var(--ink);transition:.15s;
+  }
+  .actbtn:hover{border-color:var(--accent)}
+  .actbtn.on{background:var(--accent);border-color:var(--accent);color:#fff;box-shadow:0 2px 10px color-mix(in srgb,var(--accent) 45%,transparent)}
+  .actbtn.clear{margin-left:auto;font-weight:500;color:var(--muted)}
+  .actbtn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+  /* ---- two options side by side ---- */
+  .compare{display:grid;grid-template-columns:390px 1fr;gap:26px;align-items:start}
+  @media (max-width:980px){.compare{grid-template-columns:1fr}}
+  .opt h2{font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin-bottom:4px}
+  .opt .note{font-size:13px;color:var(--muted);margin-bottom:12px;max-width:52ch}
+
+  /* =========================================================
+     SHARED node styling — dim everything, light the mapped ones
+     ========================================================= */
+  .node{transition:opacity .22s, filter .22s, box-shadow .22s, border-color .22s, transform .22s}
+  body.dimmed .node:not(.lit){opacity:.32;filter:grayscale(.55)}
+  .node.lit{
+    border-color:var(--accent)!important;
+    box-shadow:0 0 0 2px var(--accent), 0 6px 20px color-mix(in srgb,var(--accent) 40%,transparent)!important;
+    transform:translateY(-1px);
+  }
+  .layer{transition:opacity .22s, filter .22s}
+  body.dimmed .layer.quiet{opacity:.5}
+
+  /* =========================================================
+     OPTION A — narrow Demo-Control panel (always dark navy)
+     ========================================================= */
+  .panel{
+    background:var(--navy-deep);border:1px solid #000;border-radius:14px;
+    padding:14px;box-shadow:-4px 0 16px rgba(0,0,0,.25);
+  }
+  .panel .actsFaux{display:flex;flex-direction:column;gap:7px;margin-bottom:16px}
+  .panel .actsFaux .row{display:flex;align-items:center;gap:9px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.09);border-radius:9px;padding:8px 10px;color:#dfe6e9;font-size:12.5px}
+  .panel .actsFaux .ic{width:22px;height:22px;border-radius:6px;background:var(--accent);display:grid;place-items:center;font-size:12px;flex-shrink:0}
+  .panel .divlbl{display:flex;align-items:center;gap:8px;color:rgba(255,255,255,.55);font-size:10px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;margin:4px 0 12px}
+  .panel .divlbl::after{content:"";flex:1;height:1px;background:rgba(255,255,255,.14)}
+
+  .pstack{display:flex;flex-direction:column;gap:7px}
+  .pband{border-radius:10px;padding:9px 10px}
+  .pband.cream{background:rgba(255,240,224,.07);border:1px solid rgba(255,224,196,.14)}
+  .pband.cool{background:rgba(150,190,230,.08);border:1px solid rgba(150,190,230,.16)}
+  .pband .blab{font-size:9.5px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:rgba(255,255,255,.62);margin-bottom:7px}
+  .pchips{display:flex;flex-wrap:wrap;gap:6px}
+  .pchip{display:flex;align-items:center;gap:6px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.14);border-radius:8px;padding:5px 8px;color:#eef2f4;font-size:11.5px;font-weight:600}
+  .pchip .pi{width:16px;height:16px;border-radius:4px;display:grid;place-items:center;font-size:10px;background:var(--accent);flex-shrink:0}
+  .pchip.wide{width:100%}
+  .pchip .psub{font-weight:400;color:rgba(255,255,255,.55);font-size:10px}
+  .pband .ontology{margin-top:6px;text-align:center;font-size:10.5px;color:rgba(255,255,255,.6);border-top:1px dashed rgba(255,255,255,.16);padding-top:6px}
+
+  /* =========================================================
+     OPTION B — full-width Platform tab (light app surface)
+     ========================================================= */
+  .tab{background:#F7F5F1;border:1px solid var(--line);border-radius:16px;padding:20px 22px;overflow-x:auto}
+  :root[data-theme="dark"] .tab, :root:not([data-theme="light"]) .tab{}
+  @media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .tab{background:#0F1C21}}
+  :root[data-theme="dark"] .tab{background:#0F1C21}
+  .tabhead{display:flex;align-items:center;gap:18px;margin-bottom:16px;flex-wrap:wrap}
+  .brand{display:flex;align-items:center;gap:10px;font-weight:800;font-size:18px;color:var(--ink)}
+  .brand .logo{width:26px;height:26px;border-radius:6px;background:var(--accent);display:grid;place-items:center;color:#fff;font-size:15px}
+  .brand .div{width:1px;height:22px;background:var(--line)}
+  .brand .dai{font-weight:800;letter-spacing:-.01em}
+  .brand .dai b{color:var(--accent)}
+  .tagline{margin-left:auto;font-weight:800;font-size:19px;letter-spacing:-.01em;color:var(--ink)}
+  .tagline span{color:var(--accent)}
+
+  .tstack{display:flex;flex-direction:column;gap:8px;min-width:720px}
+  .tband{border-radius:12px;padding:12px 14px;display:grid;grid-template-columns:190px 1fr;gap:14px;align-items:center}
+  .tband.cream{background:var(--cream);border:1px solid var(--cream-line)}
+  .tband.cool{background:var(--cool);border:1px solid var(--cool-line)}
+  .tband .caption .t{font-weight:800;font-size:15px;color:var(--ink)}
+  .tband .caption .d{font-size:11.5px;color:var(--chip-sub);margin-top:2px;max-width:22ch}
+  .tchips{display:flex;flex-wrap:wrap;gap:10px}
+  .tchip{display:flex;align-items:center;gap:9px;background:var(--chip);border:1px solid var(--chip-line);border-radius:10px;padding:8px 12px}
+  .tchip .ti{width:26px;height:26px;border-radius:7px;display:grid;place-items:center;font-size:14px;background:var(--accent);color:#fff;flex-shrink:0}
+  .tchip .tt{font-weight:700;font-size:13px;color:var(--chip-ink);line-height:1.15}
+  .tchip .ts{font-weight:400;font-size:10.5px;color:var(--chip-sub)}
+  .subrow{display:flex;flex-wrap:wrap;gap:5px;margin-top:3px}
+  .pill{font-size:10px;font-weight:600;color:var(--chip-sub);background:color-mix(in srgb,var(--accent) 8%,transparent);border:1px solid var(--chip-line);border-radius:999px;padding:1px 7px}
+  .ontrow{grid-column:1 / -1;display:flex;align-items:center;justify-content:center;gap:8px;margin-top:2px;padding-top:8px;border-top:1px dashed var(--cream-line);font-size:12px;font-weight:600;color:var(--chip-sub)}
+  .ontrow .ti{width:22px;height:22px;border-radius:6px;background:var(--accent);color:#fff;display:grid;place-items:center;font-size:12px}
+  .infra .tchips{gap:6px}
+  .infra .tag{font-size:11px;font-weight:600;color:var(--chip-ink);display:flex;align-items:center;gap:6px}
+  .infra .tag .d{width:9px;height:9px;border-radius:50%;background:var(--accent)}
+
+  .legend{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-top:22px;font-size:12.5px;color:var(--muted)}
+  .legend .k{display:inline-flex;align-items:center;gap:7px}
+  .legend .box{width:15px;height:15px;border-radius:4px;border:1px solid var(--line)}
+  .legend .box.lit{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent)}
+  .legend .box.dim{opacity:.32;filter:grayscale(.55);background:var(--muted)}
+  footer{margin-top:30px;color:var(--muted);font-size:12px}
+  @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+<div class="wrap">
+  <h1>Platform-highlight, two ways</h1>
+  <p class="sub lede">Click an act to see which Databricks platform components it lights up. Both mockups react at once so you can compare the panel version against a full-width tab. The demo lives in the <b>data foundation</b>, so the upper agentic layers stay quiet.</p>
+
+  <div class="controls" role="group" aria-label="Run an act">
+    <span class="lbl">Run an act</span>
+    <button class="actbtn" data-act="setup">Setup · Populate</button>
+    <button class="actbtn" data-act="branching">Branching</button>
+    <button class="actbtn" data-act="synced">Synced Tables</button>
+    <button class="actbtn" data-act="cdf">Change Data Feed</button>
+    <button class="actbtn" data-act="loadtest">Load Test</button>
+    <button class="actbtn" data-act="pitr">Disaster &amp; PITR</button>
+    <button class="actbtn clear" data-act="">✕ Clear</button>
+  </div>
+
+  <div class="compare">
+    <!-- ============ OPTION A ============ -->
+    <section class="opt">
+      <h2>Option A · In the Demo Control panel</h2>
+      <p class="note">Vertical stack, fits the real 320–440px panel and scrolls with it.</p>
+      <div class="panel">
+        <div class="actsFaux" aria-hidden="true">
+          <div class="row"><span class="ic">⚙</span> Setup · Create &amp; Populate</div>
+          <div class="row"><span class="ic">⑃</span> 1 · Branching &amp; Schema</div>
+          <div class="row"><span class="ic">⇄</span> 2 · Synced Tables</div>
+        </div>
+        <div class="divlbl">Platform</div>
+
+        <div class="pstack">
+          <div class="pband cream layer quiet">
+            <div class="blab">Agentic Apps</div>
+            <div class="pchips">
+              <span class="pchip node"><span class="pi">📊</span>AI/BI</span>
+              <span class="pchip node"><span class="pi">🧩</span>Apps</span>
+              <span class="pchip node"><span class="pi">🛡️</span>Lakewatch</span>
+              <span class="pchip node"><span class="pi">👥</span>CustomerLake</span>
+            </div>
+          </div>
+          <div class="pband cream layer quiet">
+            <div class="blab">Agentic Work / Dev</div>
+            <div class="pchips">
+              <span class="pchip node"><span class="pi">🧞</span>Genie</span>
+              <span class="pchip node"><span class="pi">🧱</span>Agent Bricks</span>
+              <span class="pchip node"><span class="pi">⚡</span>ZeroOps</span>
+            </div>
+            <div class="ontology">◇ Genie Ontology</div>
+          </div>
+          <div class="pband cool">
+            <div class="blab">Unified Governance</div>
+            <div class="pchips">
+              <span class="pchip node" data-node="unity_catalog"><span class="pi">🗂️</span>Unity Catalog</span>
+              <span class="pchip node" data-node="unity_ai_gateway"><span class="pi">🚪</span>Unity AI Gateway</span>
+            </div>
+          </div>
+          <div class="pband cool">
+            <div class="blab">Agentic Data</div>
+            <div class="pchips">
+              <span class="pchip node" data-node="lakeflow"><span class="pi">🔄</span>Lakeflow</span>
+              <span class="pchip node" data-node="lakehouse"><span class="pi">🏠</span>Lakehouse</span>
+              <span class="pchip node" data-node="lakebase"><span class="pi">🐘</span>Lakebase <span class="psub">Postgres</span></span>
+            </div>
+          </div>
+          <div class="pband cool">
+            <div class="blab">Open Infrastructure</div>
+            <div class="pchips">
+              <span class="pchip node">◭ Delta</span>
+              <span class="pchip node">🧊 Iceberg</span>
+              <span class="pchip node">☁ Any Cloud</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ OPTION B ============ -->
+    <section class="opt">
+      <h2>Option B · Full-width “Platform” tab</h2>
+      <p class="note">A faithful horizontal replica of the slide, as a new tab in the main app area the presenter switches to.</p>
+      <div class="tab">
+        <div class="tabhead">
+          <div class="brand">
+            <span class="logo">▤</span> databricks
+            <span class="div"></span>
+            <span class="dai">DATA<b>+</b>AI PLATFORM</span>
+          </div>
+          <div class="tagline"><span>Context.</span> <span>Control.</span> <span>Cost.</span> <span>Choice.</span></div>
+        </div>
+
+        <div class="tstack">
+          <div class="tband cream layer quiet">
+            <div class="caption"><div class="t">Agentic Apps</div><div class="d">Deploy agents at scale to transform work</div></div>
+            <div class="tchips">
+              <span class="tchip node"><span class="ti">📊</span><span><span class="tt">AI/BI</span><br><span class="ts">Business Intelligence</span></span></span>
+              <span class="tchip node"><span class="ti">🧩</span><span><span class="tt">Apps</span><br><span class="ts">Custom Apps</span></span></span>
+              <span class="tchip node"><span class="ti">🛡️</span><span><span class="tt">Lakewatch</span><br><span class="ts">Agentic Security</span></span></span>
+              <span class="tchip node"><span class="ti">👥</span><span><span class="tt">CustomerLake</span><br><span class="ts">Agentic Marketing</span></span></span>
+            </div>
+          </div>
+
+          <div class="tband cream layer quiet">
+            <div class="caption"><div class="t">Agentic Work / Dev</div><div class="d">Data-smart coworkers · develop &amp; deploy agents</div></div>
+            <div class="tchips">
+              <span class="tchip node"><span class="ti">🧞</span><span><span class="tt">Genie</span><br><span class="ts">AI coworker on all your data</span></span></span>
+              <span class="tchip node"><span class="ti">🧱</span><span><span class="tt">Agent Bricks</span><br><span class="ts">Open agent dev platform</span></span></span>
+              <span class="tchip node"><span class="ti">⚡</span><span><span class="tt">ZeroOps</span><br><span class="ts">Build · Deploy · Optimize</span></span></span>
+            </div>
+            <div class="ontrow"><span class="ti">◇</span> Genie Ontology</div>
+          </div>
+
+          <div class="tband cool">
+            <div class="caption"><div class="t">Unified Governance</div><div class="d">Data + AI control and cost management</div></div>
+            <div class="tchips">
+              <span class="tchip node" data-node="unity_catalog"><span class="ti">🗂️</span><span><span class="tt">Unity Catalog</span><br><span class="ts">Access · Semantics · Observability</span></span></span>
+              <span class="tchip node" data-node="unity_ai_gateway"><span class="ti">🚪</span><span><span class="tt">Unity AI Gateway</span><br><span class="ts">Models · Security · Cost</span></span></span>
+            </div>
+          </div>
+
+          <div class="tband cool">
+            <div class="caption"><div class="t">Agentic Data</div><div class="d">Unified, real-time data foundation</div></div>
+            <div class="tchips">
+              <span class="tchip node" data-node="lakeflow"><span class="ti">🔄</span><span><span class="tt">Lakeflow</span><br><span class="ts">Ingest · Streaming · ETL</span></span></span>
+              <span class="tchip node" data-node="lakehouse"><span class="ti">🏠</span><span><span class="tt">Lakehouse</span><br><span class="ts">SQL Data Warehousing</span></span></span>
+              <span class="tchip node" data-node="lakebase"><span class="ti">🐘</span><span><span class="tt">Lakebase</span><br><span class="ts">Serverless Postgres</span></span></span>
+            </div>
+          </div>
+
+          <div class="tband cool infra">
+            <div class="caption"><div class="t">Open Infrastructure</div><div class="d">Open Format Data Lake</div></div>
+            <div class="tchips">
+              <span class="tag node"><span class="d"></span>◭ Delta Lake</span>
+              <span class="tag node"><span class="d"></span>🧊 Apache Iceberg</span>
+              <span class="tag node"><span class="d"></span>☁ Any Cloud</span>
+              <span class="tag node"><span class="d"></span>🤖 Any Model</span>
+              <span class="tag node"><span class="d"></span>🗄 Any Data</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div class="legend">
+    <span class="k"><span class="box lit"></span> Used by this act</span>
+    <span class="k"><span class="box dim"></span> Dimmed (not used)</span>
+    <span class="k">Mapping: Synced Tables &amp; CDF light <b>Lakehouse + Unity Catalog + Lakebase</b>; every other act lights <b>Lakebase</b>.</span>
+  </div>
+
+  <footer>Mockup only — not wired into the app yet. Sales Portal · Lakebase demo.</footer>
+</div>
+
+<script>
+  const MAP = {
+    setup:     ['lakebase'],
+    branching: ['lakebase'],
+    synced:    ['lakehouse','unity_catalog','lakebase'],
+    cdf:       ['lakebase','lakehouse','unity_catalog'],
+    loadtest:  ['lakebase'],
+    pitr:      ['lakebase'],
+  };
+  const nodes = [...document.querySelectorAll('[data-node]')];
+  const btns  = [...document.querySelectorAll('.actbtn')];
+  function select(act){
+    document.body.classList.toggle('dimmed', !!act);
+    const on = MAP[act] || [];
+    nodes.forEach(n => n.classList.toggle('lit', on.includes(n.dataset.node)));
+    btns.forEach(b => b.classList.toggle('on', b.dataset.act === act && !!act));
+  }
+  btns.forEach(b => b.addEventListener('click', () => select(b.dataset.act)));
+</script>
