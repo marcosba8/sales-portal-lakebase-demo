@@ -718,7 +718,7 @@ async function apiOrMock<T>(url: string, mock: () => T): Promise<{ data: T; isMo
 /*  Accounts Tab                                                       */
 /* ------------------------------------------------------------------ */
 
-function AccountsTab({ features, onMock }: { features: Features; onMock: () => void }) {
+function AccountsTab({ features, dataVersion, onMock }: { features: Features; dataVersion: number; onMock: () => void }) {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -742,7 +742,7 @@ function AccountsTab({ features, onMock }: { features: Features; onMock: () => v
         else setError(String(e.message));
         setLoading(false);
       });
-  }, [features.accounts_available]);
+  }, [features.accounts_available, dataVersion]);
 
   const toggleExpand = useCallback((id: number) => {
     if (expandedId === id) { setExpandedId(null); setDetailData(null); return; }
@@ -1061,7 +1061,7 @@ function AddOpportunityModal({ onClose, onAdded }: {
   );
 }
 
-function OpportunitiesTab({ features, onMock }: { features: Features; onMock: () => void }) {
+function OpportunitiesTab({ features, dataVersion, onMock }: { features: Features; dataVersion: number; onMock: () => void }) {
   const [opps, setOpps] = useState<Opportunity[]>([]);
   const [stats, setStats] = useState<OppStats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -1111,7 +1111,7 @@ function OpportunitiesTab({ features, onMock }: { features: Features; onMock: ()
         else setError(String(e.message));
         setLoading(false);
       });
-  }, [features.opportunities_available, refresh]);
+  }, [features.opportunities_available, refresh, dataVersion]);
 
   // When a new opportunity is added, scroll it into view (the table sorts by
   // close date, so it may not land at the top) and flash it briefly.
@@ -1275,7 +1275,7 @@ function HBar({ label, value, max, fill, valueLabel }: {
   );
 }
 
-function RetentionRiskTab({ features, onMock }: { features: Features; onMock: () => void }) {
+function RetentionRiskTab({ features, dataVersion, onMock }: { features: Features; dataVersion: number; onMock: () => void }) {
   const [churn, setChurn] = useState<ChurnPrediction[]>([]);
   const [stats, setStats] = useState<ChurnStats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -1291,7 +1291,7 @@ function RetentionRiskTab({ features, onMock }: { features: Features; onMock: ()
     apiOrMock('/api/accounts', () => ({ accounts: buildMockAccounts(), features: MOCK_FEATURES }))
       .then(({ data }) => setUnknownAccounts((data as any).accounts))
       .catch(() => { /* accounts not ready yet — grayed table just shows empty */ });
-  }, [features.churn_active]);
+  }, [features.churn_active, dataVersion]);
 
   useEffect(() => {
     if (!features.churn_active) { setLoading(false); return; }
@@ -1324,7 +1324,7 @@ function RetentionRiskTab({ features, onMock }: { features: Features; onMock: ()
         if ((e as { httpStatus?: number }).httpStatus !== 503) setError(String(e.message));
         setLoading(false);
       });
-  }, [features.churn_active]);
+  }, [features.churn_active, dataVersion]);
 
   if (!features.churn_active) {
     // "Unknown" state — the customers are here, but their churn insight is not
@@ -1751,7 +1751,7 @@ VALUES
     ],
   },
   {
-    num: 2,
+    num: 5,
     icon: 'rewind',
     title: 'Disaster & PITR Recovery',
     feature: 'Point-in-Time Recovery',
@@ -1825,7 +1825,7 @@ VALUES
     ],
   },
   {
-    num: 3,
+    num: 2,
     icon: 'syncIn',
     title: 'Synced Tables — Lakehouse to Lakebase',
     feature: 'Lakehouse → Lakebase sync',
@@ -1874,7 +1874,7 @@ VALUES
     // Feature ref: https://docs.databricks.com/aws/en/oltp/projects/lakebase-cdf
     // Step 1 is wired to a real backend endpoint; step 2 is a manual reminder
     // (the presenter adds an opportunity, then checks the lakehouse tables).
-    num: 4,
+    num: 3,
     icon: 'syncOut',
     title: 'Change Data Feed — Lakebase to Lakehouse',
     feature: 'Lakebase CDF',
@@ -1917,7 +1917,7 @@ VALUES
     ],
   },
   {
-    num: 5,
+    num: 4,
     icon: 'surge',
     title: 'End-of-Quarter Load Test & Autoscaling',
     feature: 'Observability · Autoscaling',
@@ -2462,7 +2462,9 @@ function DemoControlTab({
   useEffect(() => { setCollapsedActs({}); }, [resetSignal]);
 
   const setupActs = DEMO_ACTS.filter(a => a.setup);
-  const numberedActs = DEMO_ACTS.filter(a => !a.setup);
+  // Numbered acts render in ascending `num` order (not array order), so an act
+  // can be re-sequenced just by changing its `num` in DEMO_ACTS.
+  const numberedActs = DEMO_ACTS.filter(a => !a.setup).sort((a, b) => a.num - b.num);
   // Setup is "done" once all its steps have run; it then auto-collapses to a
   // slim "✓ App ready" bar (unless the presenter has manually toggled it).
   const setupDone = setupActs.every(a => a.actions.every(x => isDone(x.id)));
@@ -2651,6 +2653,10 @@ export default function App() {
   const [resetting, setResetting] = useState(false);
   // Bumped on every demo reset; the Act 5 load dashboard watches it to clear.
   const [resetSignal, setResetSignal] = useState(0);
+  // Bumped whenever a demo step mutates the underlying data (e.g. Populate data).
+  // Threaded into the content tabs so they re-fetch immediately — no manual tab
+  // switch or browser refresh needed to see the freshly-populated rows.
+  const [dataVersion, setDataVersion] = useState(0);
   // Code-runner modal: shows real SQL executing statement-by-statement.
   const [codeModal, setCodeModal] = useState<
     { title: string; statements: string[]; running: number; done: boolean; mood: 'normal' | 'disaster' } | null
@@ -2719,6 +2725,7 @@ export default function App() {
     setTimeout(() => {
       setStepStatus(s => ({ ...s, [action.id]: 'done' }));
       if (action.effects) setFeatures(f => ({ ...f, ...action.effects }));
+      setDataVersion(v => v + 1);   // tell the content tabs to re-fetch
       setCodeModal(m => (m ? { ...m, running: m.statements.length, done: true } : m));
     }, total);
   }, []);
@@ -2766,6 +2773,7 @@ export default function App() {
           }
           setStepStatus(s => ({ ...s, [action.id]: 'done' }));
           if (action.effects) setFeatures(f => ({ ...f, ...action.effects }));
+          setDataVersion(v => v + 1);   // tell the content tabs to re-fetch
           // Mark all statements complete in the modal.
           setCodeModal(m => (m ? { ...m, running: m.statements.length, done: true } : m));
         })
@@ -2882,9 +2890,9 @@ export default function App() {
               <LoadingSpinner />
             ) : (
               <>
-                {tab === 'accounts' && <AccountsTab features={features} onMock={() => setDemoMode(true)} />}
-                {tab === 'opportunities' && <OpportunitiesTab features={features} onMock={() => setDemoMode(true)} />}
-                {tab === 'churn' && <RetentionRiskTab features={features} onMock={() => setDemoMode(true)} />}
+                {tab === 'accounts' && <AccountsTab features={features} dataVersion={dataVersion} onMock={() => setDemoMode(true)} />}
+                {tab === 'opportunities' && <OpportunitiesTab features={features} dataVersion={dataVersion} onMock={() => setDemoMode(true)} />}
+                {tab === 'churn' && <RetentionRiskTab features={features} dataVersion={dataVersion} onMock={() => setDemoMode(true)} />}
               </>
             )}
           </main>
