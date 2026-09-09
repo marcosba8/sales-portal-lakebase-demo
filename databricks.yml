@@ -70,7 +70,7 @@ targets:
     variables:
       app_name: sales-portal-v2
       lakebase_project: sales-db-v2
-      warehouse_id: "6e1468fc8ebbbcb2"
+      warehouse_id: "0546aee25cdc20c5"   # Serverless Starter Warehouse (re-vended workspace, 2026-09-08)
       gold_catalog: for_startups_demos_catalog
       gold_schema: sales_ml
 
