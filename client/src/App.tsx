@@ -1630,7 +1630,7 @@ const DEMO_ACTS: DemoAct[] = [
         ],
         effects: { accounts_available: true, opportunities_available: true, activities_available: true },
         reminder: {
-          text: 'Now switch to Lakebase and show the 3 empty tables in the Catalog UI.',
+          text: 'Now let’s hop over to Lakebase and open the Catalog UI. You’ll see the three tables we just created — accounts, opportunities and sales_activities — all empty and ready to fill.',
           linkLabel: 'Open Lakebase tables',
           linkTarget: 'tables',
         },
@@ -1651,7 +1651,7 @@ const DEMO_ACTS: DemoAct[] = [
           'App cache refreshed. Accounts & Opportunities show live data.',
         ],
         reminder: {
-          text: 'Show the populated Accounts & Opportunities tabs — then refresh the Lakebase tables view to see the same tables now full.',
+          text: 'Take a look at the Accounts and Opportunities tabs — they’ve come to life. Refresh the Lakebase tables view and you’ll find those same tables, now full of data.',
         },
       },
     ],
@@ -1745,7 +1745,7 @@ VALUES
         ],
         effects: { health_score_active: true, renewals_active: true, alerts_active: true },
         reminder: {
-          text: 'Show the Accounts tab — a Health column appears, and expanding a row reveals renewals & risk alerts (zero redeploys). Then check the Lakebase UI: the dev-health branch is gone — it was cleaned up automatically after promotion.',
+          text: 'Open the Accounts tab and you’ll notice a new Health column. Expand any row and renewals and risk alerts appear too — all without a single redeploy. Now glance back at Lakebase: the dev-health branch has already vanished. It was cleaned up for us automatically the moment we promoted it.',
         },
       },
     ],
@@ -1783,7 +1783,7 @@ VALUES
         ],
         effects: { opportunities_available: false },
         reminder: {
-          text: 'Switch to the Opportunities tab — it now shows "Pipeline Temporarily Unavailable". Accounts still works: the app degrades gracefully.',
+          text: 'Switch over to the Opportunities tab — it’s now showing "Pipeline Temporarily Unavailable". Notice that Accounts keeps working just fine: rather than falling over, the app degrades gracefully.',
         },
       },
       {
@@ -1800,7 +1800,7 @@ VALUES
           'Opportunities on the recovery branch: 50 — the data is safe!',
         ],
         reminder: {
-          text: 'The 50 deals are intact on the recovery branch — nothing was lost. Now restore them to production.',
+          text: 'Here are all 50 deals, safe and sound on the recovery branch — nothing was lost. Let’s restore them back to production.',
         },
       },
       {
@@ -1819,7 +1819,7 @@ VALUES
         ],
         effects: { opportunities_available: true },
         reminder: {
-          text: 'Reload the Opportunities tab — the full pipeline is back, exactly as before. Point-in-time recovery, zero data loss.',
+          text: 'Reload the Opportunities tab and you’ll see the full pipeline is back, exactly as it was. That’s point-in-time recovery — zero data loss.',
         },
       },
     ],
@@ -1845,7 +1845,7 @@ VALUES
           'Published: for_startups_demos_catalog.data_science_ml.account_churn_predictions',
         ],
         reminder: {
-          text: 'This gold table lives in the lakehouse (Unity Catalog). Next we sync it into Lakebase so the app can read it.',
+          text: 'This gold table lives in the lakehouse, over in Unity Catalog. Next, let’s sync it into Lakebase so the app can read it directly.',
         },
       },
       {
@@ -1863,7 +1863,7 @@ VALUES
         ],
         effects: { churn_active: true },
         reminder: {
-          text: 'Open the Retention Risk tab — it was grayed out ("no insight yet"), and now the same customers light up with churn scores, risk bands, and ARR at risk. No app redeploy. Optional: open the sync pipeline in the Lakebase UI to show it running.',
+          text: 'Open the Retention Risk tab — a moment ago it was grayed out with "no insight yet", and now the same customers light up with churn scores, risk bands and ARR at risk. No redeploy needed. Want to go deeper? Open the sync pipeline in the Lakebase UI and watch it run.',
         },
       },
     ],
@@ -1895,7 +1895,7 @@ VALUES
           'Changes batch to Unity Catalog every ~15s from the WAL.',
         ],
         reminder: {
-          text: 'CDF is enabled at the schema level — every table now streams its inserts/updates/deletes to Delta tables in Unity Catalog. Next: add an opportunity in the app.',
+          text: 'Change Data Feed is now on at the schema level, so every table streams its inserts, updates and deletes to Delta tables in Unity Catalog. Let’s try it — go ahead and add an opportunity in the app.',
         },
       },
       {
@@ -1911,7 +1911,7 @@ VALUES
           'CDF captures it from the WAL → lands in the lakehouse in ~15s.',
         ],
         reminder: {
-          text: 'Now open the Lakehouse tables in Unity Catalog (for_startups_demos_catalog.data_science_ml) and check lb_opportunities_history — the opportunity you just added shows up as a change row (_pg_change_type = insert). CDF flushes every ~15s, so give it a moment. Bidirectional loop: lakehouse→app (synced tables) and app→lakehouse (CDF).',
+          text: 'Now open the lakehouse tables in Unity Catalog — that’s for_startups_demos_catalog.data_science_ml — and check lb_opportunities_history. The opportunity you just added appears as a change row, tagged _pg_change_type = insert. It flushes every ~15 seconds, so give it a moment to land. And that closes the loop: the lakehouse feeds the app through synced tables, and the app feeds the lakehouse right back through Change Data Feed.',
         },
       },
     ],
