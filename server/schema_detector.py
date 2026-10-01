@@ -1,6 +1,7 @@
 """Detect schema features with 5-second cache."""
 import time
 import logging
+from server.db import CHURN_SCHEMA
 
 logger = logging.getLogger(__name__)
 
@@ -26,13 +27,14 @@ def detect_features(conn) -> dict:
     """)
     tables = {row[0] for row in cur.fetchall()}
 
-    # The churn synced table lands in the data-science schema (not `sales`), so
-    # detect it there separately.
+    # The churn synced table lands in GOLD_SCHEMA (not `sales`), so detect it
+    # there separately. CHURN_SCHEMA is the SAME env-derived value the Act 4 sync
+    # uses as the landing schema, so detection always matches where it landed.
     cur.execute("""
         SELECT COUNT(*) FROM information_schema.tables
-        WHERE table_schema = 'data_science_ml' AND table_name = 'churn_predictions'
+        WHERE table_schema = %s AND table_name = 'churn_predictions'
           AND table_type IN ('BASE TABLE', 'VIEW', 'FOREIGN')
-    """)
+    """, (CHURN_SCHEMA,))
     churn_present = cur.fetchone()[0] > 0
 
     # Get columns for key tables

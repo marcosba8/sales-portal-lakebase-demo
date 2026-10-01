@@ -1,6 +1,6 @@
 """Retention-risk routes, powered by the churn-prediction synced table."""
 from fastapi import APIRouter, HTTPException
-from server.db import get_conn
+from server.db import get_conn, CHURN_TABLE
 from server.schema_detector import detect_features
 
 router = APIRouter(prefix="/api/churn", tags=["churn"])
@@ -18,11 +18,11 @@ def list_churn():
         # scored rows are guaranteed to be the exact accounts already shown,
         # regardless of the names baked into the gold table. The gold/synced
         # table still drives the scores, bands, ARR, drivers, etc.
-        cur.execute("""
+        cur.execute(f"""
             SELECT c.account_id, a.name AS account_name, a.segment,
                    c.churn_risk_score, c.risk_band, c.predicted_arr_at_risk_usd,
                    c.top_churn_driver, c.recommended_action, c.model_version, c.scored_at
-            FROM data_science_ml.churn_predictions c
+            FROM {CHURN_TABLE} c
             JOIN sales.accounts a ON a.id = c.account_id
             ORDER BY c.churn_risk_score DESC
             LIMIT 200
@@ -39,14 +39,14 @@ def churn_stats():
             raise HTTPException(503, detail="Churn predictions not yet synced from the lakehouse.")
 
         cur = conn.cursor()
-        cur.execute("""
+        cur.execute(f"""
             SELECT
                 ROUND(SUM(predicted_arr_at_risk_usd), 2) as total_arr_at_risk_usd,
                 COUNT(*) FILTER (WHERE risk_band = 'High') as high_risk_accounts,
                 ROUND(AVG(churn_risk_score), 2) as avg_churn_score,
                 MAX(model_version) as model_version,
                 MAX(scored_at) as scored_at
-            FROM data_science_ml.churn_predictions
+            FROM {CHURN_TABLE}
         """)
         row = cur.fetchone()
         col_names = [desc[0] for desc in cur.description]

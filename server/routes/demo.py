@@ -27,7 +27,7 @@ import time
 from fastapi import APIRouter, HTTPException
 from server.db import (
     get_conn, get_client, get_project, ensure_branch_endpoint, get_conn_for_branch,
-    run_warehouse_sql,
+    run_warehouse_sql, GOLD_SCHEMA,
 )
 from server.schema_detector import invalidate_cache
 
@@ -848,9 +848,10 @@ def act3_restore():
 # vars (injected by the deploy script from deploy.env). Defaults match the
 # original fevm-startups demo so nothing breaks if the env vars are absent.
 GOLD_CATALOG = os.environ.get("GOLD_CATALOG", "for_startups_demos_catalog")
-# Gold Delta table + the sync pipeline's internal storage live here. Moved off
-# the now-locked `sales_ml` to a fresh data-science schema. `publish` creates it.
-GOLD_SCHEMA = os.environ.get("GOLD_SCHEMA", "data_science_ml")
+# Gold Delta table + the sync pipeline's internal storage live here. GOLD_SCHEMA
+# is imported from server.db so the write path (this file) and the read path
+# (churn routes + schema_detector) share ONE definition and can never drift —
+# whatever schema the sync lands in is exactly what the reader queries.
 # Stable human owner for the gold schema. `publish` (running as the app SP, which
 # creates & thus owns the schema) transfers ownership here so the schema isn't
 # orphaned when the app SP later rotates. Empty = skip the transfer.
@@ -858,10 +859,9 @@ DEMO_SCHEMA_OWNER = os.environ.get("DEMO_SCHEMA_OWNER", "")
 GOLD_TABLE = f"{GOLD_CATALOG}.{GOLD_SCHEMA}.account_churn_predictions"
 # The synced table registers in UC under the SAME schema as the gold table
 # (GOLD_SCHEMA), and its UC schema also drives the Postgres landing schema — so
-# it lands as data_science_ml.churn_predictions, which the app reads. We reuse
-# the gold schema (created by `publish`) rather than creating a separate one;
-# this also avoids a stale/orphaned `...sales.churn_predictions` registration
-# from an earlier project that can no longer be created or deleted.
+# it lands as {GOLD_SCHEMA}.churn_predictions (e.g. sales_ml.churn_predictions on
+# the fevm target), which the app reads via server.db.CHURN_TABLE. We reuse the
+# gold schema (created by `publish`) rather than creating a separate one.
 SYNCED_UC_SCHEMA = GOLD_SCHEMA
 SYNCED_TABLE = f"{SYNCED_UC_SCHEMA}.churn_predictions"   # landing in Lakebase Postgres
 SYNCED_TABLE_ID = f"{GOLD_CATALOG}.{SYNCED_UC_SCHEMA}.churn_predictions"

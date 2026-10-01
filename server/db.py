@@ -9,6 +9,19 @@ from databricks.sdk import WorkspaceClient
 
 logger = logging.getLogger(__name__)
 
+# Act 4 churn schema — SINGLE SOURCE OF TRUTH. GOLD_SCHEMA is the UC schema the
+# gold Delta table lives in AND (because the synced table's UC schema drives the
+# Postgres landing schema) the Postgres schema the churn synced table lands in.
+# The write path (demo.py Act 4) and the read path (churn routes +
+# schema_detector) MUST agree, so both derive the schema from this one env var.
+# Hardcoding it in the read path (it used to say 'data_science_ml') silently
+# breaks whenever GOLD_SCHEMA differs — e.g. the fevm target sets sales_ml, so
+# the sync landed sales_ml.churn_predictions while the reader looked in
+# data_science_ml and never found it.
+GOLD_SCHEMA = os.environ.get("GOLD_SCHEMA", "data_science_ml")
+CHURN_SCHEMA = GOLD_SCHEMA
+CHURN_TABLE = f"{CHURN_SCHEMA}.churn_predictions"
+
 _w = None
 _endpoint = None
 _host = None
